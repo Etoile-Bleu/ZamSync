@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/zamsync-core",
+    "crates/zamsync-storage",
+    "crates/zamsync-network",
+    "crates/zamsync-testing",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["ZamSync Contributors"]
+license = "MIT"
+description = "Resilient Offline-First Synchronization Engine"
