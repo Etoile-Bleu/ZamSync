@@ -4,6 +4,9 @@ use std::fmt;
 pub const WAL_MAGIC: [u8; 4] = [0x5A, 0x41, 0x4D, 0x21];
 pub const WAL_VERSION: u8 = 1;
 
+pub mod event;
+pub use event::Event;
+
 /// Unique identifier for a node in the ZamSync network.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

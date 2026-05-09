@@ -9,6 +9,8 @@ description.workspace = true
 [dependencies]
 thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"], optional = true }
+rkyv = { version = "0.7", features = ["validation", "check_bytes"] }
+bytecheck = "0.6"
 
 [features]
 serde = ["dep:serde"]
