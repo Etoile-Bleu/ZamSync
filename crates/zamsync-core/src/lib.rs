@@ -1,11 +1,12 @@
 use std::fmt;
+use rkyv::{Archive, Deserialize, Serialize};
 
 /// Magic number for ZamSync WAL files: "ZAM!" in ASCII
 pub const WAL_MAGIC: [u8; 4] = [0x5A, 0x41, 0x4D, 0x21];
 pub const WAL_VERSION: u8 = 1;
 
-pub mod event;
-pub use event::Event;
+pub mod sync;
+pub use sync::*;
 
 /// Unique identifier for a node in the ZamSync network.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -29,6 +30,17 @@ impl fmt::Display for SequenceNumber {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
+}
+
+/// Generic Event structure for the ZamSync infrastructure.
+/// It contains no domain-specific knowledge.
+#[derive(Archive, Deserialize, Serialize, Debug, Clone)]
+#[archive(check_bytes)]
+pub struct Event {
+    /// Application-defined type or namespace.
+    pub event_type: u32,
+    /// Opaque binary data.
+    pub payload: Vec<u8>,
 }
 
 /// Common error types for the ZamSync system.

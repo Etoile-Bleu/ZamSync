@@ -7,10 +7,10 @@ license.workspace = true
 description.workspace = true
 
 [dependencies]
-thiserror = "2.0"
-serde = { version = "1.0", features = ["derive"], optional = true }
-rkyv = { version = "0.7", features = ["validation", "bytecheck"] }
-bytecheck = "0.6"
+thiserror.workspace = true
+serde = { workspace = true, optional = true }
+rkyv.workspace = true
+bytecheck.workspace = true
 
 [features]
 serde = ["dep:serde"]
