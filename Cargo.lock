@@ -1749,6 +1749,7 @@ dependencies = [
  "metrics-exporter-prometheus",
  "tracing",
  "tracing-subscriber",
+ "windows-sys 0.52.0",
  "zamsync-core",
  "zamsync-network",
  "zamsync-storage",
