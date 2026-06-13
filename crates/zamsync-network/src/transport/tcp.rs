@@ -141,3 +141,84 @@ impl Transport for TcpTransport {
         Ok(None)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::thread;
+    use zamsync_core::ports::StateStore;
+    use zamsync_core::{Event, NodeId, SequenceNumber, ZamResult};
+    use zamsync_storage::{SyncSession, ZamEngine};
+
+    #[derive(Default)]
+    struct Counter {
+        pub count: usize,
+    }
+    impl StateStore for Counter {
+        fn apply_event(&mut self, _seq: SequenceNumber, _event: &Event) -> ZamResult<()> {
+            self.count += 1;
+            Ok(())
+        }
+        fn last_applied_seq(&self) -> Option<SequenceNumber> {
+            None
+        }
+    }
+
+    /// Full bidirectional sync over real TCP loopback:
+    /// - A submits 3 events, B submits 2 events before any sync
+    /// - A initiates sync to B (A is initiator, B serves one session)
+    /// - After sync both nodes must have all 5 events
+    #[test]
+    fn test_tcp_two_node_full_sync() {
+        let dir_a = tempfile::tempdir().unwrap();
+        let dir_b = tempfile::tempdir().unwrap();
+        let node_a = NodeId(1);
+        let node_b = NodeId(2);
+
+        // Pre-populate both nodes before sync
+        {
+            let mut eng = ZamEngine::open_wal(dir_a.path(), node_a, Counter::default()).unwrap();
+            eng.submit(1, b"a-evt-1".to_vec()).unwrap();
+            eng.submit(1, b"a-evt-2".to_vec()).unwrap();
+            eng.submit(1, b"a-evt-3".to_vec()).unwrap();
+            eng.sync().unwrap();
+        }
+        {
+            let mut eng = ZamEngine::open_wal(dir_b.path(), node_b, Counter::default()).unwrap();
+            eng.submit(1, b"b-evt-1".to_vec()).unwrap();
+            eng.submit(1, b"b-evt-2".to_vec()).unwrap();
+            eng.sync().unwrap();
+        }
+
+        // B listens
+        let mut transport_b = TcpTransport::bind("127.0.0.1:0").unwrap();
+        let b_addr = transport_b.local_addr().unwrap().to_string();
+        let path_b = dir_b.path().to_path_buf();
+
+        let b_thread = thread::spawn(move || {
+            let mut eng = ZamEngine::open_wal(&path_b, node_b, Counter::default()).unwrap();
+            let peer_id = transport_b.accept_any().unwrap();
+            SyncSession::new(&mut eng, &mut transport_b)
+                .serve_one(peer_id)
+                .unwrap();
+            eng.sync().unwrap();
+            eng.state().count
+        });
+
+        // A connects and initiates sync
+        let mut transport_a = TcpTransport::bind("127.0.0.1:0").unwrap();
+        let mut eng_a = ZamEngine::open_wal(dir_a.path(), node_a, Counter::default()).unwrap();
+        transport_a.connect(node_b, &b_addr).unwrap();
+        let stats = SyncSession::new(&mut eng_a, &mut transport_a)
+            .sync(node_b)
+            .unwrap();
+        eng_a.sync().unwrap();
+
+        let b_count = b_thread.join().unwrap();
+
+        assert_eq!(eng_a.state().count, 5, "A should have all 5 events after sync");
+        assert_eq!(b_count, 5, "B should have all 5 events after sync");
+        assert_eq!(stats.events_sent, 3, "A sent its 3 events to B");
+        assert_eq!(stats.events_received, 2, "A received B's 2 events");
+    }
+}

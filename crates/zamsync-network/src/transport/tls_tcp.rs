@@ -205,11 +205,6 @@ mod tests {
     use std::time::Duration;
     use zamsync_core::{NodeId, SyncMessage, VersionVector};
 
-    fn make_tls_config() -> TlsConfig {
-        let creds = generate_credentials().expect("keygen");
-        TlsConfig::from_pem(creds.node_cert_pem, creds.node_key_pem, creds.ca_cert_pem)
-    }
-
     #[test]
     fn test_tls_handshake_and_message_exchange() {
         crate::tls::install_crypto_provider();
