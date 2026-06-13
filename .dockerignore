@@ -1,0 +1,7 @@
+target/
+.git/
+.gitignore
+*.md
+!README.md
+deploy/
+tmp_pr_body.md

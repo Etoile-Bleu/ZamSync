@@ -56,7 +56,7 @@
 - [ ] End-to-end encryption (noise protocol or TLS)
 - [ ] Node authentication (pre-shared keys or certificate pinning)
 - [x] Prometheus metrics: events_submitted, sync duration histogram, events_sent/received, VV drift gauge
-- [ ] Docker image + systemd unit for unattended deployment
+- [x] Docker image + systemd unit for unattended deployment (ARM64/ARMv7 via `docker buildx`)
 
 ## First-Deployment Target
 

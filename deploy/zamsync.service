@@ -1,0 +1,37 @@
+[Unit]
+Description=ZamSync offline-first sync engine
+Documentation=https://github.com/Etoile-Bleu/ZamSync
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zamsync
+Group=zamsync
+
+# Load site-specific configuration from /etc/zamsync/zamsync.env.
+# Variables ZAMSYNC_DATA_DIR and ZAMSYNC_BIND_ADDR are required.
+EnvironmentFile=/etc/zamsync/zamsync.env
+
+ExecStart=/usr/local/bin/zamsync serve ${ZAMSYNC_DATA_DIR} ${ZAMSYNC_BIND_ADDR}
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+WorkingDirectory=/var/lib/zamsync
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+# Allow write access only to the data directory and logs.
+ReadWritePaths=/var/lib/zamsync
+
+# Logging -- output goes to journald; query with: journalctl -u zamsync -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=zamsync
+
+[Install]
+WantedBy=multi-user.target

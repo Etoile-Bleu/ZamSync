@@ -1,0 +1,45 @@
+# Two-node ZamSync cluster for local testing.
+#
+# Usage:
+#   docker compose up -d              # start both servers
+#   docker compose exec node-a zamsync submit /data "hello from A"
+#   docker compose exec node-b zamsync submit /data "hello from B"
+#
+# Trigger a sync (node-b pulls from node-a):
+#   NODE_A_ID=$(docker compose exec node-a cat /data/.node_id)
+#   docker compose exec node-b zamsync sync /data node-a:7000 $NODE_A_ID
+#
+# Check state:
+#   docker compose exec node-a zamsync info /data
+#   docker compose exec node-b zamsync info /data
+
+services:
+  node-a:
+    build: .
+    command: ["serve", "/data", "0.0.0.0:7000"]
+    volumes:
+      - node_a_data:/data
+    ports:
+      - "7000:7000"
+    networks:
+      - zamsync
+    restart: unless-stopped
+
+  node-b:
+    build: .
+    command: ["serve", "/data", "0.0.0.0:7000"]
+    volumes:
+      - node_b_data:/data
+    ports:
+      - "7001:7000"
+    networks:
+      - zamsync
+    restart: unless-stopped
+
+volumes:
+  node_a_data:
+  node_b_data:
+
+networks:
+  zamsync:
+    driver: bridge
