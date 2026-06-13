@@ -13,6 +13,9 @@ byteorder.workspace = true
 log.workspace = true
 tracing.workspace = true
 zstd.workspace = true
+rustls.workspace = true
+rustls-pemfile.workspace = true
+rcgen.workspace = true
 
 [dev-dependencies]
 zamsync-storage = { path = "../zamsync-storage" }
