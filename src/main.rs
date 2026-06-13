@@ -28,7 +28,7 @@ fn usage() {
   zamsync info   <data-dir>
   zamsync submit <data-dir> <payload>
   zamsync sync   <data-dir> <peer-addr> <peer-id>
-  zamsync serve  <data-dir> <bind-addr> <peer-id>"
+  zamsync serve  <data-dir> <bind-addr>"
     );
 }
 
@@ -100,23 +100,29 @@ fn cmd_sync(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 fn cmd_serve(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let dir = data_dir(args, 2)?;
     let bind_addr = args.get(3).ok_or("missing bind-addr")?;
-    let peer_id: u32 = args.get(4).ok_or("missing peer-id")?.parse()?;
 
     let node_id = node_id_from_dir(&dir);
-    let mut engine = ZamEngine::open_wal(&dir, node_id, EventCounter::default())?;
-
     let mut transport = TcpTransport::bind(bind_addr)?;
-    println!("listening on {}", transport.local_addr()?);
-    println!("waiting for peer {}...", peer_id);
-
-    transport.accept_peer(NodeId(peer_id))?;
-
-    let stats = SyncSession::new(&mut engine, &mut transport).serve_one(NodeId(peer_id))?;
     println!(
-        "sync done: sent={} received={}",
-        stats.events_sent, stats.events_received
+        "node {} listening on {}",
+        node_id.0,
+        transport.local_addr()?
     );
-    Ok(())
+
+    loop {
+        println!("waiting for peer...");
+        let mut engine = ZamEngine::open_wal(&dir, node_id, EventCounter::default())?;
+
+        let peer_id = transport.accept_any()?;
+        println!("peer {} connected", peer_id.0);
+
+        let stats = SyncSession::new(&mut engine, &mut transport).serve_one(peer_id)?;
+        println!(
+            "sync with peer {} done: sent={} received={}",
+            peer_id.0, stats.events_sent, stats.events_received
+        );
+        transport.disconnect(peer_id);
+    }
 }
 
 fn data_dir(args: &[String], pos: usize) -> Result<PathBuf, Box<dyn std::error::Error>> {
