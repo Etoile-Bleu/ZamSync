@@ -1,5 +1,6 @@
 use crate::adapters::{FilePeerStore, WalEventStore};
 use crate::sorter::LogSorter;
+use metrics::counter;
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -63,7 +64,9 @@ impl<E: EventStore, P: PeerStore, S: StateStore> ZamEngine<E, P, S> {
             event_type,
             payload,
         };
-        self.commit_event(event)
+        let result = self.commit_event(event)?;
+        counter!("zamsync_events_submitted_total").increment(1);
+        Ok(result)
     }
 
     pub fn apply_replicated(&mut self, event: Event) -> ZamResult<SequenceNumber> {

@@ -30,6 +30,8 @@ zamsync-core = { path = "crates/zamsync-core" }
 log.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+metrics.workspace = true
+metrics-exporter-prometheus = "0.15"
 
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -44,3 +46,4 @@ tempfile = "3.10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 zstd = "0.13"
+metrics = "0.23"

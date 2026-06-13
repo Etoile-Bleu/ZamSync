@@ -13,6 +13,7 @@ byteorder.workspace = true
 log.workspace = true
 rkyv.workspace = true
 tracing.workspace = true
+metrics.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

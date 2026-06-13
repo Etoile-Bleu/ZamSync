@@ -1,4 +1,6 @@
 use std::env;
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
 use zamsync_core::ports::StateStore;
@@ -28,9 +30,13 @@ fn usage() {
         "Usage:
   zamsync info    <data-dir>
   zamsync submit  <data-dir> <payload>
-  zamsync sync    <data-dir> <peer-addr> <peer-id>
-  zamsync serve   <data-dir> <bind-addr>
-  zamsync compact <data-dir>"
+  zamsync sync    <data-dir> <peer-addr> <peer-id> [--metrics <bind-addr>]
+  zamsync serve   <data-dir> <bind-addr> [--metrics <bind-addr>]
+  zamsync compact <data-dir>
+
+Metrics flag (serve / sync):
+  --metrics <addr>   Start a Prometheus /metrics endpoint on <addr>
+                     Example: --metrics 0.0.0.0:9090"
     );
 }
 
@@ -88,6 +94,10 @@ fn cmd_sync(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let peer_addr = args.get(3).ok_or("missing peer-addr")?;
     let peer_id: u32 = args.get(4).ok_or("missing peer-id")?.parse()?;
 
+    if let Some(metrics_addr) = flag_value(args, "--metrics") {
+        start_metrics_server(metrics_addr)?;
+    }
+
     let node_id = node_id_from_dir(&dir);
     let mut engine = ZamEngine::open_wal(&dir, node_id, EventCounter::default())?;
     let peer = NodeId(peer_id);
@@ -125,6 +135,10 @@ fn cmd_serve(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let dir = data_dir(args, 2)?;
     let bind_addr = args.get(3).ok_or("missing bind-addr")?;
 
+    if let Some(metrics_addr) = flag_value(args, "--metrics") {
+        start_metrics_server(metrics_addr)?;
+    }
+
     let node_id = node_id_from_dir(&dir);
     let mut transport = TcpTransport::bind(bind_addr)?;
     println!(
@@ -156,6 +170,61 @@ fn cmd_serve(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
+fn cmd_compact(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let dir = data_dir(args, 2)?;
+    let node_id = node_id_from_dir(&dir);
+    let mut engine = ZamEngine::open_wal(&dir, node_id, EventCounter::default())?;
+    let dropped = engine.compact()?;
+    engine.sync()?;
+    if dropped == 0 {
+        println!("nothing to compact (no peers have confirmed events yet)");
+    } else {
+        println!("compacted: dropped {dropped} WAL records");
+    }
+    Ok(())
+}
+
+/// Install the Prometheus recorder and start a minimal HTTP server on `addr`.
+/// The server serves `GET /metrics` in Prometheus text format.
+/// Runs in a background thread; never blocks the caller.
+fn start_metrics_server(addr: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let handle = metrics_exporter_prometheus::PrometheusBuilder::new()
+        .install_recorder()?;
+
+    let addr: SocketAddr = addr.parse()?;
+    let listener = TcpListener::bind(addr)?;
+    println!("metrics endpoint: http://{}/metrics", addr);
+
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            serve_metrics(&stream, &handle);
+        }
+    });
+
+    Ok(())
+}
+
+fn serve_metrics(mut stream: &TcpStream, handle: &metrics_exporter_prometheus::PrometheusHandle) {
+    // Consume the HTTP request (we always return metrics regardless of path/method).
+    let mut buf = [0u8; 2048];
+    let _ = stream.read(&mut buf);
+
+    let body = handle.render();
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/plain; version=0.0.4; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    let _ = stream.write_all(response.as_bytes());
+}
+
+/// Return the value of a `--flag <value>` pair from the arg list.
+fn flag_value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
+    args.windows(2)
+        .find(|w| w[0] == flag)
+        .map(|w| w[1].as_str())
+}
+
 fn data_dir(args: &[String], pos: usize) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let path = PathBuf::from(args.get(pos).ok_or("missing data-dir")?);
     std::fs::create_dir_all(&path)?;
@@ -174,20 +243,6 @@ fn node_id_from_dir(dir: &std::path::Path) -> NodeId {
     let id = rand_u32();
     let _ = std::fs::write(&id_file, id.to_string());
     NodeId(id)
-}
-
-fn cmd_compact(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let dir = data_dir(args, 2)?;
-    let node_id = node_id_from_dir(&dir);
-    let mut engine = ZamEngine::open_wal(&dir, node_id, EventCounter::default())?;
-    let dropped = engine.compact()?;
-    engine.sync()?;
-    if dropped == 0 {
-        println!("nothing to compact (no peers have confirmed events yet)");
-    } else {
-        println!("compacted: dropped {dropped} WAL records");
-    }
-    Ok(())
 }
 
 fn is_transient(e: &zamsync_core::ZamError) -> bool {
