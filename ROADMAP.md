@@ -53,8 +53,9 @@
 
 ## Phase 6: Security and Ops
 
-- [ ] End-to-end encryption (noise protocol or TLS)
-- [ ] Node authentication (pre-shared keys or certificate pinning)
+- [x] End-to-end encryption: mutual TLS (mTLS) with rustls (pure Rust, ARM-compatible)
+- [x] Node authentication: certificate-based via shared CA; unauthorized nodes rejected at TLS handshake
+- [x] `zamsync keygen <data-dir>` -- generates CA + node cert pair for a deployment
 - [x] Prometheus metrics: events_submitted, sync duration histogram, events_sent/received, VV drift gauge
 - [ ] Docker image + systemd unit for unattended deployment
 
