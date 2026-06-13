@@ -40,7 +40,8 @@
 - [x] Auto-truncate partial WAL writes on open (silent data-loss fix)
 - [x] `serve` loop: continuous, auto-detects peer NodeId from Handshake
 - [x] Structured logging: tracing spans per sync session, RUST_LOG filter
-- [ ] Reconnect and retry logic in `SyncSession`
+- [x] Reconnect and retry logic in `sync` CLI command (exponential backoff, 5 attempts)
+- [x] Serve loop continues on peer errors instead of dying
 - [ ] Max frame size enforcement and backpressure
 
 ## Phase 5: Performance

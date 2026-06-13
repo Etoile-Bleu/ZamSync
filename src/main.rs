@@ -88,16 +88,35 @@ fn cmd_sync(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 
     let node_id = node_id_from_dir(&dir);
     let mut engine = ZamEngine::open_wal(&dir, node_id, EventCounter::default())?;
+    let peer = NodeId(peer_id);
 
-    let mut transport = TcpTransport::bind("0.0.0.0:0")?;
-    transport.connect(NodeId(peer_id), peer_addr)?;
+    const MAX_ATTEMPTS: u32 = 5;
+    for attempt in 1..=MAX_ATTEMPTS {
+        let mut transport = TcpTransport::bind("0.0.0.0:0")?;
+        let connect_result = transport.connect(peer, peer_addr);
+        let sync_result = connect_result
+            .and_then(|()| SyncSession::new(&mut engine, &mut transport).sync(peer));
 
-    let stats = SyncSession::new(&mut engine, &mut transport).sync(NodeId(peer_id))?;
-    println!(
-        "sync done: sent={} received={}",
-        stats.events_sent, stats.events_received
-    );
-    Ok(())
+        match sync_result {
+            Ok(stats) => {
+                println!(
+                    "sync done: sent={} received={}",
+                    stats.events_sent, stats.events_received
+                );
+                return Ok(());
+            }
+            Err(ref e) if is_transient(e) && attempt < MAX_ATTEMPTS => {
+                let delay_ms = 100u64 * (1 << (attempt - 1));
+                eprintln!(
+                    "sync attempt {}/{MAX_ATTEMPTS} failed ({}), retrying in {delay_ms}ms",
+                    attempt, e
+                );
+                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+    unreachable!()
 }
 
 fn cmd_serve(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
@@ -113,17 +132,24 @@ fn cmd_serve(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     );
 
     loop {
-        println!("waiting for peer...");
         let mut engine = ZamEngine::open_wal(&dir, node_id, EventCounter::default())?;
 
-        let peer_id = transport.accept_any()?;
+        let peer_id = match transport.accept_any() {
+            Ok(id) => id,
+            Err(e) => {
+                eprintln!("accept error: {e}");
+                continue;
+            }
+        };
         println!("peer {} connected", peer_id.0);
 
-        let stats = SyncSession::new(&mut engine, &mut transport).serve_one(peer_id)?;
-        println!(
-            "sync with peer {} done: sent={} received={}",
-            peer_id.0, stats.events_sent, stats.events_received
-        );
+        match SyncSession::new(&mut engine, &mut transport).serve_one(peer_id) {
+            Ok(stats) => println!(
+                "sync with peer {} done: sent={} received={}",
+                peer_id.0, stats.events_sent, stats.events_received
+            ),
+            Err(e) => eprintln!("sync with peer {} failed: {e}", peer_id.0),
+        }
         transport.disconnect(peer_id);
     }
 }
@@ -146,6 +172,20 @@ fn node_id_from_dir(dir: &std::path::Path) -> NodeId {
     let id = rand_u32();
     let _ = std::fs::write(&id_file, id.to_string());
     NodeId(id)
+}
+
+fn is_transient(e: &zamsync_core::ZamError) -> bool {
+    match e {
+        zamsync_core::ZamError::Io(io_err) => matches!(
+            io_err.kind(),
+            std::io::ErrorKind::ConnectionReset
+                | std::io::ErrorKind::ConnectionAborted
+                | std::io::ErrorKind::BrokenPipe
+                | std::io::ErrorKind::TimedOut
+                | std::io::ErrorKind::ConnectionRefused
+        ),
+        _ => false,
+    }
 }
 
 fn rand_u32() -> u32 {
