@@ -48,7 +48,7 @@
 
 - [x] Chunked `EventBatch`: 256 events/frame cap, multiple frames per sync (bounds frame size and peak memory)
 - [x] WAL compaction: drop peer-confirmed events; tombstone record preserves seq continuity; `zamsync compact` CLI command
-- [ ] Zstd compression with pre-shared dictionary (target: -70% bandwidth on repetitive payloads)
+- [x] Zstd compression: level-3 on all frames >= 64 bytes, flag byte for decoder, transparent to all callers
 - [ ] Resource profiling: target < 100 MB RSS on embedded hardware
 
 ## Phase 6: Security and Ops
