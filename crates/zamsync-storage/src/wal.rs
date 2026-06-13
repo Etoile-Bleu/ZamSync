@@ -102,13 +102,13 @@ impl WalScanner {
         let mut last_pos = 0;
 
         loop {
-            match it.next_record() {
-                Ok(Some(record)) => {
+            match it.next() {
+                Some(Ok(record)) => {
                     last_seq = Some(record.seq);
                     last_pos = it.offset;
                 }
-                Ok(None) => break,
-                Err(e) => {
+                None => break,
+                Some(Err(e)) => {
                     log::warn!("WAL recovery stopped at pos {}: {}", it.offset, e);
                     break;
                 }
@@ -124,47 +124,64 @@ pub struct WalIterator {
     offset: u64,
 }
 
-impl WalIterator {
-    pub fn next_record(&mut self) -> ZamResult<Option<WalRecord>> {
-        self.file.seek(SeekFrom::Start(self.offset))?;
+impl Iterator for WalIterator {
+    type Item = ZamResult<WalRecord>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.file.seek(SeekFrom::Start(self.offset)).ok()?;
         
         let mut header = [0u8; WAL_HEADER_SIZE];
-        let bytes_read = self.file.read(&mut header)?;
+        let bytes_read = self.file.read(&mut header).ok()?;
         
         if bytes_read == 0 {
-            return Ok(None);
+            return None;
         }
         
         if bytes_read < WAL_HEADER_SIZE {
-            return Err(ZamError::Corruption("Partial header at EOF".into()));
+            return Some(Err(ZamError::Corruption("Partial header at EOF".into())));
         }
 
         let mut rdr = io::Cursor::new(&header);
         
         // 1. Verify Magic
         let mut magic = [0u8; 4];
-        rdr.read_exact(&mut magic)?;
+        if let Err(e) = rdr.read_exact(&mut magic) {
+            return Some(Err(e.into()));
+        }
         if magic != WAL_MAGIC {
-            return Err(ZamError::Corruption(format!("Invalid magic: {:?}", magic)));
+            return Some(Err(ZamError::Corruption(format!("Invalid magic: {:?}", magic))));
         }
 
         // 2. Read Metadata
-        let version = rdr.read_u8()?;
+        let version = match rdr.read_u8() {
+            Ok(v) => v,
+            Err(e) => return Some(Err(e.into())),
+        };
         if version != WAL_VERSION {
-            return Err(ZamError::Corruption(format!("Unsupported version: {}", version)));
+            return Some(Err(ZamError::Corruption(format!("Unsupported version: {}", version))));
         }
         
-        let expected_crc = rdr.read_u32::<BigEndian>()?;
-        let seq = SequenceNumber(rdr.read_u64::<BigEndian>()?);
-        let len = rdr.read_u32::<BigEndian>()? as usize;
+        let expected_crc = match rdr.read_u32::<BigEndian>() {
+            Ok(v) => v,
+            Err(e) => return Some(Err(e.into())),
+        };
+        let seq = match rdr.read_u64::<BigEndian>() {
+            Ok(v) => v,
+            Err(e) => return Some(Err(e.into())),
+        };
+        let seq = SequenceNumber(seq);
+        let len = match rdr.read_u32::<BigEndian>() {
+            Ok(v) => v,
+            Err(e) => return Some(Err(e.into())),
+        } as usize;
 
         // 3. Read Payload
         let mut payload = vec![0u8; len];
         if let Err(e) = self.file.read_exact(&mut payload) {
             if e.kind() == io::ErrorKind::UnexpectedEof {
-                return Err(ZamError::Corruption("Partial payload at EOF".into()));
+                return Some(Err(ZamError::Corruption("Partial payload at EOF".into())));
             }
-            return Err(e.into());
+            return Some(Err(e.into()));
         }
 
         // 4. Verify CRC
@@ -176,14 +193,14 @@ impl WalIterator {
         let actual_crc = hasher.finalize();
 
         if actual_crc != expected_crc {
-            return Err(ZamError::Corruption(format!(
+            return Some(Err(ZamError::Corruption(format!(
                 "CRC mismatch for sequence {}: expected {}, got {}",
                 seq, expected_crc, actual_crc
-            )));
+            ))));
         }
 
         self.offset += (WAL_HEADER_SIZE + len) as u64;
-        Ok(Some(WalRecord { seq, payload }))
+        Some(Ok(WalRecord { seq, payload }))
     }
 }
 
@@ -206,15 +223,13 @@ mod tests {
         let scanner = WalScanner::open(&path)?;
         let mut it = scanner.scan();
         
-        let r1 = it.next_record()?.unwrap();
+        let r1 = it.next().unwrap().unwrap();
         assert_eq!(r1.seq.0, 0);
         assert_eq!(r1.payload, b"hello");
-
-        let r2 = it.next_record()?.unwrap();
+        let r2 = it.next().unwrap().unwrap();
         assert_eq!(r2.seq.0, 1);
         assert_eq!(r2.payload, b"world");
-
-        assert!(it.next_record()?.is_none());
+        assert!(it.next().is_none());
         Ok(())
     }
 
@@ -264,7 +279,7 @@ mod tests {
 
         let scanner = WalScanner::open(&path)?;
         let mut it = scanner.scan();
-        let res = it.next_record();
+        let res = it.next().unwrap();
         
         match res {
             Err(ZamError::Corruption(msg)) => assert!(msg.contains("CRC mismatch")),

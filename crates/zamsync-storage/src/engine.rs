@@ -17,13 +17,12 @@ impl<S: StateStore> ZamEngine<S> {
         let (last_seq, _recover_pos) = WalScanner::recover(&path)?;
         let mut max_hlc = Hlc::default();
         
-        if let Some(_) = last_seq {
+        if last_seq.is_some() {
             let scanner = WalScanner::open(&path)?;
-            let mut it = scanner.scan();
-            while let Some(record) = it.next_record()? {
+            for result in scanner.scan() {
+                let record = result?;
                 let event: Event = rkyv::from_bytes(&record.payload)
                     .map_err(|e| ZamError::Serialization(format!("Failed to deserialize event: {}", e)))?;
-                
                 if event.hlc > max_hlc {
                     max_hlc = event.hlc;
                 }
