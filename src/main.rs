@@ -19,6 +19,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("serve")   => cmd::serve(&args),
         Some("compact") => cmd::compact(&args),
         Some("keygen")  => cmd::keygen(&args),
+        Some("bench")   => cmd::bench(&args),
         _ => {
             cmd::usage();
             std::process::exit(1);

@@ -1,3 +1,4 @@
+mod bench;
 mod compact;
 mod info;
 mod keygen;
@@ -5,6 +6,7 @@ mod serve;
 mod submit;
 mod sync;
 
+pub use bench::run as bench;
 pub use compact::run as compact;
 pub use info::run as info;
 pub use keygen::run as keygen;
@@ -21,6 +23,7 @@ pub fn usage() {
   zamsync serve   <data-dir> <bind-addr> [--tls] [--metrics <addr>]
   zamsync compact <data-dir>
   zamsync keygen  <data-dir>
+  zamsync bench   <data-dir> [--events N]
 
 Flags (serve / sync):
   --tls            Use mTLS with credentials in <data-dir>/tls/
