@@ -60,6 +60,10 @@
 - [x] Docker image + systemd unit for unattended deployment (ARM64/ARMv7 via `docker buildx`)
 - [x] WAL encryption at rest: ChaCha20-Poly1305 AEAD, random nonce per record, `--key-file` flag on all commands
 
+## Phase 7: Compliance and Access Control
+
+- [x] Audit trail: `zamsync audit <data-dir>` -- immutable per-event log with ISO 8601 timestamp, origin node, seq, type, payload size, SHA-256 integrity hash; JSON Lines (`--format json`) and text output; filter by `--since <unix-ms>` and `--node <id>`; `--key-file` for encrypted WALs
+
 ## First-Deployment Target
 
 Bhutan ePIS (electronic patient information system):
