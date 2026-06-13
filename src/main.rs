@@ -1,5 +1,6 @@
 use std::env;
 use std::path::PathBuf;
+use tracing_subscriber::EnvFilter;
 use zamsync_core::ports::StateStore;
 use zamsync_core::{Event, NodeId, SequenceNumber, ZamResult};
 use zamsync_network::TcpTransport;
@@ -33,7 +34,9 @@ fn usage() {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::init();
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .init();
     let args: Vec<String> = env::args().collect();
 
     match args.get(1).map(String::as_str) {

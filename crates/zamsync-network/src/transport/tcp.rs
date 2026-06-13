@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::io::BufWriter;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::time::Duration;
+use tracing::{info, warn};
 use zamsync_core::ports::Transport;
 use zamsync_core::{NodeId, SyncMessage, ZamError, ZamResult};
 
@@ -21,7 +22,7 @@ impl TcpTransport {
     pub fn bind(addr: &str) -> ZamResult<Self> {
         let listener = TcpListener::bind(addr)?;
         listener.set_nonblocking(true)?;
-        log::info!("listening on {}", addr);
+        info!("listening on {}", addr);
         Ok(Self {
             listener,
             peers: HashMap::new(),
@@ -45,7 +46,7 @@ impl TcpTransport {
                 pending: None,
             },
         );
-        log::info!("accepted peer {} from {}", peer_id.0, addr);
+        info!(peer = peer_id.0, %addr, "accepted peer");
         Ok(())
     }
 
@@ -61,10 +62,14 @@ impl TcpTransport {
         let msg = protocol::decode(&mut stream)?;
         let node_id = match &msg {
             SyncMessage::Handshake { node_id, .. } => *node_id,
-            _ => {
+            other => {
+                warn!(
+                    ?other,
+                    "expected Handshake as first message, closing connection"
+                );
                 return Err(ZamError::Protocol(
                     "first message from peer must be a Handshake".into(),
-                ))
+                ));
             }
         };
 
@@ -76,7 +81,7 @@ impl TcpTransport {
                 pending: Some(msg),
             },
         );
-        log::info!("accepted peer {} from {}", node_id.0, addr);
+        info!(peer = node_id.0, %addr, "accepted peer via Handshake");
         Ok(node_id)
     }
 
@@ -95,7 +100,7 @@ impl TcpTransport {
                 pending: None,
             },
         );
-        log::info!("connected to peer {} at {}", peer_id.0, addr);
+        info!(peer = peer_id.0, addr, "connected to peer");
         Ok(())
     }
 

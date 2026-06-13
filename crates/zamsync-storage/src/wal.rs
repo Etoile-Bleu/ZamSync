@@ -3,6 +3,7 @@ use crc32fast::Hasher;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::Path;
+use tracing::warn;
 use zamsync_core::{SequenceNumber, ZamError, ZamResult, WAL_MAGIC, WAL_VERSION};
 
 /// WAL Header Size: 4 (Magic) + 1 (Ver) + 4 (CRC) + 8 (Seq) + 4 (Len) = 21 bytes.
@@ -106,7 +107,7 @@ impl WalScanner {
                 }
                 None => break,
                 Some(Err(e)) => {
-                    log::warn!("WAL recovery stopped at pos {}: {}", it.offset, e);
+                    warn!(pos = it.offset, error = %e, "WAL recovery stopped");
                     break;
                 }
             }

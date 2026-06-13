@@ -1,3 +1,4 @@
+use tracing::{instrument, warn};
 use zamsync_core::ports::{EventStore, PeerStore, StateStore, Transport};
 use zamsync_core::{NodeId, SyncMessage, ZamError, ZamResult};
 
@@ -33,6 +34,7 @@ where
 
     /// Initiator side: sends our handshake, receives peer's handshake + events +
     /// SyncComplete, then pushes our missing events and sends SyncComplete.
+    #[instrument(skip(self), fields(peer = peer_id.0))]
     pub fn sync(&mut self, peer_id: NodeId) -> ZamResult<SyncStats> {
         let mut stats = SyncStats::default();
 
@@ -75,6 +77,12 @@ where
         }
         self.transport.send(peer_id, &SyncMessage::SyncComplete)?;
 
+        tracing::info!(
+            peer = peer_id.0,
+            sent = stats.events_sent,
+            received = stats.events_received,
+            "sync complete"
+        );
         self.engine.sync()?;
         Ok(stats)
     }
@@ -82,6 +90,7 @@ where
     /// Responder side: waits for the initiator's handshake, responds with our
     /// handshake + events + SyncComplete, then receives initiator's events until
     /// their SyncComplete.
+    #[instrument(skip(self), fields(peer = peer_id.0))]
     pub fn serve_one(&mut self, peer_id: NodeId) -> ZamResult<SyncStats> {
         let mut stats = SyncStats::default();
 
@@ -119,6 +128,12 @@ where
             }
         }
 
+        tracing::info!(
+            peer = peer_id.0,
+            sent = stats.events_sent,
+            received = stats.events_received,
+            "serve_one complete"
+        );
         self.engine.sync()?;
         Ok(stats)
     }
@@ -135,6 +150,7 @@ where
                 Some(_) | None => continue,
             }
         }
+        warn!(peer = expected_peer.0, "timeout waiting for peer handshake");
         Err(ZamError::Protocol(
             "timeout waiting for peer handshake".into(),
         ))
