@@ -1,11 +1,11 @@
-pub mod wal;
-pub mod state;
+pub mod adapters;
 pub mod engine;
-pub mod peer;
 pub mod sorter;
+pub mod wal;
 
-pub use wal::{WalWriter, WalScanner, WalRecord, WalIterator};
-pub use state::StateStore;
+pub use adapters::{FilePeerStore, WalEventStore};
 pub use engine::ZamEngine;
-pub use peer::PeerManager;
 pub use sorter::LogSorter;
+pub use wal::{WalIterator, WalRecord, WalScanner, WalWriter};
+
+pub use zamsync_core::ports::{EventStore, PeerStore, StateStore, Transport};

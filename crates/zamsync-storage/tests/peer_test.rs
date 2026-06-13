@@ -1,35 +1,35 @@
 use zamsync_core::{NodeId, SequenceNumber, VersionVector};
-use zamsync_storage::PeerManager;
+use zamsync_core::ports::PeerStore;
+use zamsync_storage::FilePeerStore;
 use tempfile::tempdir;
 
 #[test]
 fn test_version_vector_persistence() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
-    let state_path = dir.path().join("peers.db");
+    let state_path = dir.path().join("peers.state");
     let self_id = NodeId(1);
     let peer_id = NodeId(2);
     let node_c = NodeId(3);
 
-    // 1. Initialize and update VV
     {
-        let mut manager = PeerManager::open(&state_path, self_id)?;
-        manager.update_local_knowledge(self_id, SequenceNumber(10))?;
-        manager.update_local_knowledge(node_c, SequenceNumber(5))?;
-        
+        let mut store = FilePeerStore::open(&state_path, self_id)?;
+        let mut state = store.load()?;
+        state.local_vv.update(self_id, SequenceNumber(10));
+        state.local_vv.update(node_c, SequenceNumber(5));
         let mut peer_vv = VersionVector::new();
         peer_vv.update(self_id, SequenceNumber(8));
-        manager.update_peer_knowledge(peer_id, peer_vv)?;
+        state.peers.entry(peer_id.0).or_default().known_vv = peer_vv;
+        store.save(&state)?;
     }
 
-    // 2. Reload and verify
     {
-        let manager = PeerManager::open(&state_path, self_id)?;
-        assert_eq!(manager.local_vv().get(self_id), SequenceNumber(10));
-        assert_eq!(manager.local_vv().get(node_c), SequenceNumber(5));
-        
-        let peer_vv = manager.get_peer_vv(peer_id).unwrap();
+        let store = FilePeerStore::open(&state_path, self_id)?;
+        let state = store.load()?;
+        assert_eq!(state.local_vv.get(self_id), SequenceNumber(10));
+        assert_eq!(state.local_vv.get(node_c), SequenceNumber(5));
+        let peer_vv = &state.peers[&peer_id.0].known_vv;
         assert_eq!(peer_vv.get(self_id), SequenceNumber(8));
-        assert_eq!(peer_vv.get(NodeId(99)), SequenceNumber(0)); // Unknown node
+        assert_eq!(peer_vv.get(NodeId(99)), SequenceNumber(0));
     }
 
     Ok(())
@@ -42,15 +42,12 @@ fn test_vv_gap_discovery() {
     local.update(NodeId(2), SequenceNumber(5));
 
     let mut remote = VersionVector::new();
-    remote.update(NodeId(1), SequenceNumber(12)); // Ahead on 1
-    remote.update(NodeId(2), SequenceNumber(5));  // Equal on 2
-    remote.update(NodeId(3), SequenceNumber(3));  // Ahead on 3 (new)
+    remote.update(NodeId(1), SequenceNumber(12));
+    remote.update(NodeId(2), SequenceNumber(5));
+    remote.update(NodeId(3), SequenceNumber(3));
 
     let gaps = local.find_gaps(&remote);
     assert_eq!(gaps.len(), 2);
-    
-    // Check for Node 1
     assert!(gaps.iter().any(|(id, seq)| id.0 == 1 && seq.0 == 10));
-    // Check for Node 3
     assert!(gaps.iter().any(|(id, seq)| id.0 == 3 && seq.0 == 0));
 }
