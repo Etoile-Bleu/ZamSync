@@ -6,7 +6,8 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use zamsync_core::ports::{EventStore, PeerStore, StateStore};
 use zamsync_core::{
-    Event, Hlc, NodeId, ReplicationState, SequenceNumber, SyncMessage, VersionVector, ZamResult,
+    Event, Hlc, NodeId, PayloadSchema, ReplicationState, SequenceNumber, SyncMessage,
+    VersionVector, ZamResult,
 };
 
 /// Maximum events per `EventBatch` frame. Bounds frame size and peak memory
@@ -20,6 +21,7 @@ pub struct ZamEngine<E: EventStore, P: PeerStore, S: StateStore> {
     state: S,
     hlc: Hlc,
     replication: ReplicationState,
+    schema: PayloadSchema,
 }
 
 impl<E: EventStore, P: PeerStore, S: StateStore> ZamEngine<E, P, S> {
@@ -50,10 +52,19 @@ impl<E: EventStore, P: PeerStore, S: StateStore> ZamEngine<E, P, S> {
             state,
             hlc: max_hlc,
             replication,
+            schema: PayloadSchema::None,
         })
     }
 
+    /// Set the payload schema for this engine (builder pattern).
+    /// Validation runs on every `submit()` and `apply_replicated()` call.
+    pub fn with_schema(mut self, schema: PayloadSchema) -> Self {
+        self.schema = schema;
+        self
+    }
+
     pub fn submit(&mut self, event_type: u32, payload: Vec<u8>) -> ZamResult<SequenceNumber> {
+        self.schema.validate(&payload)?;
         let now_ms = now_ms();
         self.hlc.tick(now_ms);
         let seq = self.event_store.next_seq();
@@ -75,6 +86,7 @@ impl<E: EventStore, P: PeerStore, S: StateStore> ZamEngine<E, P, S> {
                 return Ok(event.seq);
             }
         }
+        self.schema.validate(&event.payload)?;
         let now_ms = now_ms();
         self.hlc.sync(now_ms, &event.hlc);
         self.commit_event(event)

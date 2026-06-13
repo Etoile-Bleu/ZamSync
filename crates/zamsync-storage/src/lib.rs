@@ -13,3 +13,4 @@ pub use sync_session::{SyncSession, SyncStats};
 pub use wal::{WalIterator, WalRecord, WalScanner, WalWriter};
 
 pub use zamsync_core::ports::{EventStore, PeerStore, StateStore, Transport};
+pub use zamsync_core::PayloadSchema;

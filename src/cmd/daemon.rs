@@ -1,9 +1,9 @@
 use crate::metrics::start_metrics_server;
-use crate::util::{data_dir, flag_value, load_encryption_key, load_tls_config, node_id_from_dir, EventCounter};
+use crate::util::{data_dir, flag_value, load_encryption_key, load_schema, load_tls_config, node_id_from_dir};
 use std::time::{Duration, Instant};
 use zamsync_core::NodeId;
 use zamsync_network::{TcpTransport, TlsTcpTransport};
-use zamsync_storage::{EncryptionKey, SyncSession, ZamEngine};
+use zamsync_storage::{EncryptionKey, PayloadSchema, SyncSession, ZamEngine};
 
 pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let dir = data_dir(args, 2)?;
@@ -14,6 +14,7 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(60);
     let use_tls = args.contains(&"--tls".to_string());
     let enc_key = load_encryption_key(args)?;
+    let schema = load_schema(args)?;
 
     if let Some(metrics_addr) = flag_value(args, "--metrics") {
         start_metrics_server(metrics_addr)?;
@@ -31,7 +32,7 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         let tick_start = Instant::now();
-        match sync_once(&dir, node_id, peer, peer_addr, use_tls, enc_key.as_ref()) {
+        match sync_once(&dir, node_id, peer, peer_addr, use_tls, enc_key.as_ref(), schema.clone()) {
             Ok((sent, received)) => {
                 if sent > 0 || received > 0 {
                     println!(
@@ -59,11 +60,13 @@ fn sync_once(
     peer_addr: &str,
     use_tls: bool,
     enc_key: Option<&EncryptionKey>,
+    schema: PayloadSchema,
 ) -> Result<(usize, usize), Box<dyn std::error::Error>> {
-    let mut engine = match enc_key {
-        Some(key) => ZamEngine::open_wal_encrypted(dir, node_id, EventCounter::default(), key.clone())?,
-        None => ZamEngine::open_wal(dir, node_id, EventCounter::default())?,
+    let engine = match enc_key {
+        Some(key) => ZamEngine::open_wal_encrypted(dir, node_id, crate::util::EventCounter::default(), key.clone())?,
+        None => ZamEngine::open_wal(dir, node_id, crate::util::EventCounter::default())?,
     };
+    let mut engine = engine.with_schema(schema);
 
     let stats = if use_tls {
         let tls_config = load_tls_config(dir)?;

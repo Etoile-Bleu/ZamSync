@@ -1,9 +1,9 @@
 use crate::metrics::start_metrics_server;
-use crate::util::{data_dir, flag_value, load_encryption_key, load_tls_config, node_id_from_dir, EventCounter};
+use crate::util::{data_dir, flag_value, load_encryption_key, load_schema, load_tls_config, node_id_from_dir, EventCounter};
 use std::path::Path;
 use zamsync_core::NodeId;
 use zamsync_network::{TcpTransport, TlsTcpTransport};
-use zamsync_storage::{EncryptionKey, FilePeerStore, SyncSession, WalEventStore, ZamEngine};
+use zamsync_storage::{EncryptionKey, FilePeerStore, PayloadSchema, SyncSession, WalEventStore, ZamEngine};
 
 type Engine = ZamEngine<WalEventStore, FilePeerStore, EventCounter>;
 
@@ -12,6 +12,7 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let bind_addr = args.get(3).ok_or("missing bind-addr")?;
     let use_tls = args.contains(&"--tls".to_string());
     let enc_key = load_encryption_key(args)?;
+    let schema = load_schema(args)?;
 
     if let Some(metrics_addr) = flag_value(args, "--metrics") {
         start_metrics_server(metrics_addr)?;
@@ -23,37 +24,31 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         let tls_config = load_tls_config(&dir)?;
         let mut transport = TlsTcpTransport::bind(bind_addr, &tls_config)?;
         println!("node {} TLS listening on {}", node_id.0, transport.local_addr()?);
-        tls_loop(node_id, &dir, enc_key, &mut transport);
+        tls_loop(node_id, &dir, enc_key, schema, &mut transport);
     } else {
         let mut transport = TcpTransport::bind(bind_addr)?;
         println!("node {} listening on {}", node_id.0, transport.local_addr()?);
-        tcp_loop(node_id, &dir, enc_key, &mut transport);
+        tcp_loop(node_id, &dir, enc_key, schema, &mut transport);
     }
     Ok(())
 }
 
-fn open_engine(dir: &Path, node_id: NodeId, enc_key: &Option<EncryptionKey>) -> zamsync_core::ZamResult<Engine> {
+fn open_for_serve(dir: &Path, node_id: NodeId, enc_key: &Option<EncryptionKey>, schema: &PayloadSchema) -> zamsync_core::ZamResult<Engine> {
     match enc_key {
-        Some(key) => ZamEngine::open_wal_encrypted(dir, node_id, EventCounter::default(), key.clone()),
-        None => ZamEngine::open_wal(dir, node_id, EventCounter::default()),
+        Some(key) => Ok(ZamEngine::open_wal_encrypted(dir, node_id, EventCounter::default(), key.clone())?.with_schema(schema.clone())),
+        None => Ok(ZamEngine::open_wal(dir, node_id, EventCounter::default())?.with_schema(schema.clone())),
     }
 }
 
-fn tcp_loop(node_id: NodeId, dir: &Path, enc_key: Option<EncryptionKey>, transport: &mut TcpTransport) {
+fn tcp_loop(node_id: NodeId, dir: &Path, enc_key: Option<EncryptionKey>, schema: PayloadSchema, transport: &mut TcpTransport) {
     loop {
-        let mut engine = match open_engine(dir, node_id, &enc_key) {
+        let mut engine = match open_for_serve(dir, node_id, &enc_key, &schema) {
             Ok(e) => e,
-            Err(e) => {
-                eprintln!("engine open error: {e}");
-                continue;
-            }
+            Err(e) => { eprintln!("engine open error: {e}"); continue; }
         };
         let peer_id = match transport.accept_any() {
             Ok(id) => id,
-            Err(e) => {
-                eprintln!("accept error: {e}");
-                continue;
-            }
+            Err(e) => { eprintln!("accept error: {e}"); continue; }
         };
         println!("peer {} connected", peer_id.0);
         match SyncSession::new(&mut engine, transport).serve_one(peer_id) {
@@ -67,21 +62,15 @@ fn tcp_loop(node_id: NodeId, dir: &Path, enc_key: Option<EncryptionKey>, transpo
     }
 }
 
-fn tls_loop(node_id: NodeId, dir: &Path, enc_key: Option<EncryptionKey>, transport: &mut TlsTcpTransport) {
+fn tls_loop(node_id: NodeId, dir: &Path, enc_key: Option<EncryptionKey>, schema: PayloadSchema, transport: &mut TlsTcpTransport) {
     loop {
-        let mut engine = match open_engine(dir, node_id, &enc_key) {
+        let mut engine = match open_for_serve(dir, node_id, &enc_key, &schema) {
             Ok(e) => e,
-            Err(e) => {
-                eprintln!("engine open error: {e}");
-                continue;
-            }
+            Err(e) => { eprintln!("engine open error: {e}"); continue; }
         };
         let peer_id = match transport.accept_any() {
             Ok(id) => id,
-            Err(e) => {
-                eprintln!("TLS accept error: {e}");
-                continue;
-            }
+            Err(e) => { eprintln!("TLS accept error: {e}"); continue; }
         };
         println!("TLS peer {} connected", peer_id.0);
         match SyncSession::new(&mut engine, transport).serve_one(peer_id) {

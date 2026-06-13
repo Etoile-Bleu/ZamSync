@@ -12,6 +12,8 @@ pub enum ZamError {
     Config(String),
     #[error("Storage engine error: {0}")]
     Storage(String),
+    #[error("Payload validation failed: {0}")]
+    Validation(String),
 }
 
 pub type ZamResult<T> = Result<T, ZamError>;

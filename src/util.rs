@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use zamsync_core::ports::StateStore;
 use zamsync_core::{Event, NodeId, SequenceNumber, ZamResult};
 use zamsync_network::TlsConfig;
-use zamsync_storage::EncryptionKey;
+use zamsync_storage::{EncryptionKey, PayloadSchema};
 
 #[derive(Default)]
 pub struct EventCounter {
@@ -75,6 +75,26 @@ pub fn load_encryption_key(args: &[String]) -> Result<Option<EncryptionKey>, Box
         Some(path) => Ok(Some(EncryptionKey::from_file(path)?)),
         None => Ok(None),
     }
+}
+
+pub fn load_schema(args: &[String]) -> Result<PayloadSchema, Box<dyn std::error::Error>> {
+    match flag_value(args, "--schema") {
+        Some(s) => PayloadSchema::from_str(s).map_err(|e| e.into()),
+        None => Ok(PayloadSchema::None),
+    }
+}
+
+pub fn open_engine(
+    dir: &Path,
+    node_id: NodeId,
+    enc_key: Option<EncryptionKey>,
+    schema: PayloadSchema,
+) -> Result<zamsync_storage::ZamEngine<zamsync_storage::WalEventStore, zamsync_storage::FilePeerStore, EventCounter>, Box<dyn std::error::Error>> {
+    let engine = match enc_key {
+        Some(key) => zamsync_storage::ZamEngine::open_wal_encrypted(dir, node_id, EventCounter::default(), key)?,
+        None => zamsync_storage::ZamEngine::open_wal(dir, node_id, EventCounter::default())?,
+    };
+    Ok(engine.with_schema(schema))
 }
 
 fn rand_u32() -> u32 {
