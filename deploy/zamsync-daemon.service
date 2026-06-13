@@ -1,0 +1,39 @@
+[Unit]
+Description=ZamSync daemon -- periodic outbound sync to hub
+Documentation=https://github.com/Etoile-Bleu/ZamSync
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zamsync
+Group=zamsync
+
+EnvironmentFile=/etc/zamsync/zamsync.env
+
+# Connects to ZAMSYNC_HUB_ADDR and syncs every ZAMSYNC_INTERVAL seconds.
+# The serve unit (zamsync.service) handles inbound connections separately.
+ExecStart=/usr/local/bin/zamsync daemon \
+    ${ZAMSYNC_DATA_DIR} \
+    ${ZAMSYNC_HUB_ADDR} \
+    ${ZAMSYNC_HUB_ID} \
+    --interval ${ZAMSYNC_INTERVAL:-60}
+
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=30s
+WorkingDirectory=/var/lib/zamsync
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadWritePaths=/var/lib/zamsync
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=zamsync-daemon
+
+[Install]
+WantedBy=multi-user.target

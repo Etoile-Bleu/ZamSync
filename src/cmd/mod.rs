@@ -1,5 +1,6 @@
 mod bench;
 mod compact;
+mod daemon;
 mod info;
 mod keygen;
 mod serve;
@@ -8,6 +9,7 @@ mod sync;
 
 pub use bench::run as bench;
 pub use compact::run as compact;
+pub use daemon::run as daemon;
 pub use info::run as info;
 pub use keygen::run as keygen;
 pub use serve::run as serve;
@@ -21,13 +23,14 @@ pub fn usage() {
   zamsync submit  <data-dir> <payload>
   zamsync sync    <data-dir> <peer-addr> <peer-id> [--tls] [--metrics <addr>]
   zamsync serve   <data-dir> <bind-addr> [--tls] [--metrics <addr>]
+  zamsync daemon  <data-dir> <peer-addr> <peer-id> [--tls] [--interval <secs>] [--metrics <addr>]
   zamsync compact <data-dir>
   zamsync keygen  <data-dir>
   zamsync bench   <data-dir> [--events N]
 
-Flags (serve / sync):
-  --tls            Use mTLS with credentials in <data-dir>/tls/
-                   Run 'zamsync keygen' first to generate credentials.
-  --metrics <addr> Expose Prometheus /metrics on <addr> (e.g. 0.0.0.0:9090)"
+Flags (serve / sync / daemon):
+  --tls              Use mTLS with credentials in <data-dir>/tls/
+  --interval <secs>  Sync interval for daemon mode (default: 60)
+  --metrics <addr>   Expose Prometheus /metrics on <addr> (e.g. 0.0.0.0:9090)"
     );
 }
