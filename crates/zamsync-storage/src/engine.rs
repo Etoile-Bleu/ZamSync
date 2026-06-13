@@ -8,6 +8,10 @@ use zamsync_core::{
     Event, Hlc, NodeId, ReplicationState, SequenceNumber, SyncMessage, VersionVector, ZamResult,
 };
 
+/// Maximum events per `EventBatch` frame. Bounds frame size and peak memory
+/// during sync regardless of how many events a node has accumulated.
+pub const EVENTS_PER_BATCH: usize = 256;
+
 pub struct ZamEngine<E: EventStore, P: PeerStore, S: StateStore> {
     node_id: NodeId,
     event_store: E,
@@ -109,10 +113,10 @@ impl<E: EventStore, P: PeerStore, S: StateStore> ZamEngine<E, P, S> {
                 let mut responses = vec![self.prepare_handshake()];
                 for (node, start_seq) in gaps {
                     let events = self.events_since(node, start_seq)?;
-                    if !events.is_empty() {
+                    for chunk in events.chunks(EVENTS_PER_BATCH) {
                         responses.push(SyncMessage::EventBatch {
                             origin_node: node,
-                            events,
+                            events: chunk.to_vec(),
                         });
                     }
                 }

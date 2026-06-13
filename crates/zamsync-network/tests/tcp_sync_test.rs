@@ -108,6 +108,39 @@ fn test_tcp_sync_idempotent() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Syncing more than EVENTS_PER_BATCH events exercises the chunked-send path.
+/// All events must arrive intact even when split across multiple frames.
+#[test]
+fn test_tcp_sync_large_batch() -> Result<(), Box<dyn std::error::Error>> {
+    use zamsync_storage::EVENTS_PER_BATCH;
+
+    let node_a = NodeId(20);
+    let node_b = NodeId(21);
+    let dir_a = tempdir()?;
+    let dir_b = tempdir()?;
+
+    // A writes more than one batch worth of events
+    let event_count = EVENTS_PER_BATCH + 50;
+    {
+        let mut engine = ZamEngine::open_wal(dir_a.path(), node_a, EventCounter::default())?;
+        for i in 0..event_count {
+            engine.submit(1, format!("event-{i}").into_bytes())?;
+        }
+        engine.sync()?;
+    }
+
+    let (sent, received) = run_one_sync(&dir_a, node_a, &dir_b, node_b)?;
+
+    assert_eq!(received, event_count, "B must receive all events from A");
+    assert_eq!(sent, 0, "B has nothing to send");
+
+    // B must be queryable and have the right count
+    let engine_b = ZamEngine::open_wal(dir_b.path(), node_b, EventCounter::default())?;
+    assert_eq!(engine_b.state().count, event_count);
+
+    Ok(())
+}
+
 fn run_one_sync(
     dir_a: &tempfile::TempDir,
     node_a: NodeId,

@@ -2,7 +2,7 @@ use tracing::{instrument, warn};
 use zamsync_core::ports::{EventStore, PeerStore, StateStore, Transport};
 use zamsync_core::{NodeId, SyncMessage, ZamError, ZamResult};
 
-use crate::engine::ZamEngine;
+use crate::engine::{ZamEngine, EVENTS_PER_BATCH};
 
 #[derive(Debug, Default)]
 pub struct SyncStats {
@@ -64,13 +64,13 @@ where
         let gaps = peer_vv.find_gaps(&our_vv);
         for (node, start_seq) in gaps {
             let events = self.engine.events_since(node, start_seq)?;
-            if !events.is_empty() {
-                stats.events_sent += events.len();
+            for chunk in events.chunks(EVENTS_PER_BATCH) {
+                stats.events_sent += chunk.len();
                 self.transport.send(
                     peer_id,
                     &SyncMessage::EventBatch {
                         origin_node: node,
-                        events,
+                        events: chunk.to_vec(),
                     },
                 )?;
             }

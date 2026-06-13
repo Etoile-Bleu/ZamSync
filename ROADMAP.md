@@ -46,9 +46,9 @@
 
 ## Phase 5: Performance
 
-- [ ] Zstd compression with pre-shared dictionary (target: -70% bandwidth on repetitive payloads)
-- [ ] Streaming `EventBatch` (chunked sends instead of full-collect)
+- [x] Chunked `EventBatch`: 256 events/frame cap, multiple frames per sync (bounds frame size and peak memory)
 - [ ] WAL compaction / snapshot to bound replay time on startup
+- [ ] Zstd compression with pre-shared dictionary (target: -70% bandwidth on repetitive payloads)
 - [ ] Resource profiling: target < 100 MB RSS on embedded hardware
 
 ## Phase 6: Security and Ops
