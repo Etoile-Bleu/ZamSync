@@ -55,9 +55,10 @@
 
 - [x] End-to-end encryption: mutual TLS (mTLS) with rustls (pure Rust, ARM-compatible)
 - [x] Node authentication: certificate-based via shared CA; unauthorized nodes rejected at TLS handshake
-- [x] `zamsync keygen <data-dir>` -- generates CA + node cert pair for a deployment
+- [x] `zamsync keygen <data-dir>` -- generates CA + node cert pair + WAL encryption key (`data.key`)
 - [x] Prometheus metrics: events_submitted, sync duration histogram, events_sent/received, VV drift gauge
 - [x] Docker image + systemd unit for unattended deployment (ARM64/ARMv7 via `docker buildx`)
+- [x] WAL encryption at rest: ChaCha20-Poly1305 AEAD, random nonce per record, `--key-file` flag on all commands
 
 ## First-Deployment Target
 

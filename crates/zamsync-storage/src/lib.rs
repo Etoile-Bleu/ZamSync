@@ -1,10 +1,12 @@
 pub mod adapters;
+pub mod encryption;
 pub mod engine;
 pub mod sorter;
 pub mod sync_session;
 pub mod wal;
 
 pub use adapters::{FilePeerStore, WalEventStore};
+pub use encryption::EncryptionKey;
 pub use engine::{ZamEngine, EVENTS_PER_BATCH};
 pub use sorter::LogSorter;
 pub use sync_session::{SyncSession, SyncStats};

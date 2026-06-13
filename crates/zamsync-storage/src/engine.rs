@@ -210,6 +210,18 @@ impl<S: StateStore> ZamEngine<WalEventStore, FilePeerStore, S> {
         ZamEngine::new(node_id, event_store, peer_store, state)
     }
 
+    pub fn open_wal_encrypted(
+        data_dir: impl AsRef<Path>,
+        node_id: NodeId,
+        state: S,
+        key: crate::encryption::EncryptionKey,
+    ) -> ZamResult<Self> {
+        let dir = data_dir.as_ref();
+        let event_store = WalEventStore::open_encrypted(dir.join("events.wal"), key)?;
+        let peer_store = FilePeerStore::open(dir.join("peers.state"), node_id)?;
+        ZamEngine::new(node_id, event_store, peer_store, state)
+    }
+
     /// Drops WAL records that ALL known peers have confirmed receiving.
     ///
     /// The compaction frontier is the per-node minimum of `peer.known_vv` across

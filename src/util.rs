@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use zamsync_core::ports::StateStore;
 use zamsync_core::{Event, NodeId, SequenceNumber, ZamResult};
 use zamsync_network::TlsConfig;
+use zamsync_storage::EncryptionKey;
 
 #[derive(Default)]
 pub struct EventCounter {
@@ -67,6 +68,13 @@ pub fn load_tls_config(dir: &Path) -> Result<TlsConfig, Box<dyn std::error::Erro
         tls_dir.join("node.key"),
         tls_dir.join("ca.crt"),
     )?)
+}
+
+pub fn load_encryption_key(args: &[String]) -> Result<Option<EncryptionKey>, Box<dyn std::error::Error>> {
+    match flag_value(args, "--key-file") {
+        Some(path) => Ok(Some(EncryptionKey::from_file(path)?)),
+        None => Ok(None),
+    }
 }
 
 fn rand_u32() -> u32 {

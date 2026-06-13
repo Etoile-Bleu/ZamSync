@@ -3,6 +3,9 @@ use std::fmt;
 
 pub const WAL_MAGIC: [u8; 4] = [0x5A, 0x41, 0x4D, 0x21];
 pub const WAL_VERSION: u8 = 1;
+/// WAL records with this version byte have their payload encrypted with
+/// ChaCha20-Poly1305. Format: [nonce: 12][ciphertext][tag: 16].
+pub const WAL_VERSION_ENCRYPTED: u8 = 2;
 
 #[derive(
     Archive,

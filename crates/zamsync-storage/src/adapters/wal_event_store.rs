@@ -1,22 +1,32 @@
+use crate::encryption::EncryptionKey;
 use crate::wal::{WalScanner, WalWriter};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use zamsync_core::ports::EventStore;
 use zamsync_core::{Event, SequenceNumber, ZamError, ZamResult};
 
 pub struct WalEventStore {
     path: PathBuf,
     writer: WalWriter,
+    encryption: Option<Arc<EncryptionKey>>,
 }
 
 impl WalEventStore {
     pub fn open(path: impl AsRef<Path>) -> ZamResult<Self> {
-        let (last_seq, end_pos) = WalScanner::recover(&path)?;
+        Self::open_inner(path, None)
+    }
 
-        // Truncate any bytes left past the last valid record. Without this, a
-        // crash mid-write leaves a partial record in the file. WalWriter opens in
-        // APPEND mode, so new records land after the garbage -- and the next scan
-        // stops at the garbage, making those new records permanently invisible.
+    pub fn open_encrypted(path: impl AsRef<Path>, key: EncryptionKey) -> ZamResult<Self> {
+        Self::open_inner(path, Some(Arc::new(key)))
+    }
+
+    fn open_inner(path: impl AsRef<Path>, encryption: Option<Arc<EncryptionKey>>) -> ZamResult<Self> {
+        let (last_seq, end_pos) = match &encryption {
+            Some(key) => WalScanner::recover_encrypted(&path, Arc::clone(key))?,
+            None => WalScanner::recover(&path)?,
+        };
+
         if path.as_ref().exists() {
             let actual_len = std::fs::metadata(path.as_ref())?.len();
             if actual_len > end_pos {
@@ -28,25 +38,20 @@ impl WalEventStore {
         }
 
         let next_seq = last_seq.map(|s| s.next()).unwrap_or(SequenceNumber::ZERO);
-        let writer = WalWriter::open(&path, next_seq)?;
+        let writer = match &encryption {
+            Some(key) => WalWriter::open_encrypted(&path, next_seq, Arc::clone(key))?,
+            None => WalWriter::open(&path, next_seq)?,
+        };
+
         Ok(Self {
             path: path.as_ref().to_path_buf(),
             writer,
+            encryption,
         })
     }
 }
 
 impl WalEventStore {
-    /// Rewrites the WAL, dropping all events whose `seq <= frontier[origin_node]`.
-    /// Events at or below the frontier have been confirmed by all known peers and
-    /// are safe to drop. Original WAL seq numbers are preserved (not renumbered)
-    /// so that the next local-event seq continues correctly after reopening.
-    ///
-    /// If ALL events are dropped, a zero-payload tombstone is written at the
-    /// last seq so that `WalWriter.current_seq` continues from the right position
-    /// instead of resetting to zero.
-    ///
-    /// Returns the number of records dropped. Returns 0 if nothing was dropped.
     pub fn compact(&mut self, frontier: &HashMap<u32, SequenceNumber>) -> ZamResult<usize> {
         if !self.path.exists() || frontier.is_empty() {
             return Ok(0);
@@ -58,11 +63,15 @@ impl WalEventStore {
         let mut dropped = 0usize;
         let mut last_seen_seq: Option<SequenceNumber> = None;
 
-        for result in WalScanner::open(&self.path)?.scan() {
+        let scanner = match &self.encryption {
+            Some(key) => WalScanner::open_encrypted(&self.path, Arc::clone(key))?,
+            None => WalScanner::open(&self.path)?,
+        };
+
+        for result in scanner.scan() {
             let record = result?;
             last_seen_seq = Some(record.seq);
 
-            // Tombstone records (empty payload) are kept to preserve seq continuity.
             if record.payload.is_empty() {
                 kept.push((record.seq, record.payload));
                 continue;
@@ -87,8 +96,6 @@ impl WalEventStore {
             return Ok(0);
         }
 
-        // If every remaining record is a tombstone (or kept is empty), replace them
-        // with a single tombstone at the last WAL seq so WalWriter resumes correctly.
         let all_tombstones = kept.iter().all(|(_, p)| p.is_empty());
         if all_tombstones {
             kept.clear();
@@ -99,20 +106,25 @@ impl WalEventStore {
 
         let tmp = self.path.with_extension("wal.tmp");
         {
-            let mut w = WalWriter::open(&tmp, SequenceNumber::ZERO)?;
+            let mut w = match &self.encryption {
+                Some(key) => WalWriter::open_encrypted(&tmp, SequenceNumber::ZERO, Arc::clone(key))?,
+                None => WalWriter::open(&tmp, SequenceNumber::ZERO)?,
+            };
             for (seq, payload) in &kept {
                 w.append_at_seq(*seq, payload)?;
             }
             w.sync()?;
         }
 
-        // Atomic replace -- on Windows rename fails if the destination exists.
         if self.path.exists() {
             std::fs::remove_file(&self.path)?;
         }
         std::fs::rename(&tmp, &self.path)?;
 
-        let (last_seq, end_pos) = WalScanner::recover(&self.path)?;
+        let (last_seq, end_pos) = match &self.encryption {
+            Some(key) => WalScanner::recover_encrypted(&self.path, Arc::clone(key))?,
+            None => WalScanner::recover(&self.path)?,
+        };
         let next_seq = last_seq.map(|s| s.next()).unwrap_or(SequenceNumber::ZERO);
 
         let actual_len = std::fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0);
@@ -123,7 +135,10 @@ impl WalEventStore {
                 .set_len(end_pos)?;
         }
 
-        self.writer = WalWriter::open(&self.path, next_seq)?;
+        self.writer = match &self.encryption {
+            Some(key) => WalWriter::open_encrypted(&self.path, next_seq, Arc::clone(key))?,
+            None => WalWriter::open(&self.path, next_seq)?,
+        };
         Ok(dropped)
     }
 }
@@ -143,14 +158,17 @@ impl EventStore for WalEventStore {
         if !self.path.exists() {
             return Ok(Box::new(std::iter::empty()));
         }
-        let scanner = WalScanner::open(&self.path)?;
+        let scanner = match &self.encryption {
+            Some(key) => WalScanner::open_encrypted(&self.path, Arc::clone(key))?,
+            None => WalScanner::open(&self.path)?,
+        };
         let iter = scanner.scan().filter_map(|res| -> Option<ZamResult<Event>> {
             let record = match res {
                 Ok(r) => r,
                 Err(e) => return Some(Err(e)),
             };
             if record.payload.is_empty() {
-                return None; // tombstone written by compact() to preserve seq continuity
+                return None;
             }
             Some(
                 rkyv::from_bytes::<Event>(&record.payload)

@@ -1,5 +1,5 @@
 use crate::metrics::start_metrics_server;
-use crate::util::{data_dir, flag_value, is_transient, load_tls_config, node_id_from_dir, EventCounter};
+use crate::util::{data_dir, flag_value, is_transient, load_encryption_key, load_tls_config, node_id_from_dir, EventCounter};
 use zamsync_core::NodeId;
 use zamsync_network::{TcpTransport, TlsTcpTransport};
 use zamsync_storage::{SyncSession, ZamEngine};
@@ -9,13 +9,17 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let peer_addr = args.get(3).ok_or("missing peer-addr")?;
     let peer_id: u32 = args.get(4).ok_or("missing peer-id")?.parse()?;
     let use_tls = args.contains(&"--tls".to_string());
+    let enc_key = load_encryption_key(args)?;
 
     if let Some(metrics_addr) = flag_value(args, "--metrics") {
         start_metrics_server(metrics_addr)?;
     }
 
     let node_id = node_id_from_dir(&dir);
-    let mut engine = ZamEngine::open_wal(&dir, node_id, EventCounter::default())?;
+    let mut engine = match enc_key {
+        Some(key) => ZamEngine::open_wal_encrypted(&dir, node_id, EventCounter::default(), key)?,
+        None => ZamEngine::open_wal(&dir, node_id, EventCounter::default())?,
+    };
     let peer = NodeId(peer_id);
 
     const MAX_ATTEMPTS: u32 = 5;

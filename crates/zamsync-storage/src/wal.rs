@@ -1,10 +1,12 @@
+use crate::encryption::EncryptionKey;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use crc32fast::Hasher;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::Path;
+use std::sync::Arc;
 use tracing::warn;
-use zamsync_core::{SequenceNumber, ZamError, ZamResult, WAL_MAGIC, WAL_VERSION};
+use zamsync_core::{SequenceNumber, ZamError, ZamResult, WAL_MAGIC, WAL_VERSION, WAL_VERSION_ENCRYPTED};
 
 /// WAL Header Size: 4 (Magic) + 1 (Ver) + 4 (CRC) + 8 (Seq) + 4 (Len) = 21 bytes.
 pub const WAL_HEADER_SIZE: usize = 21;
@@ -18,17 +20,32 @@ pub struct WalRecord {
 pub struct WalWriter {
     file: BufWriter<File>,
     current_seq: SequenceNumber,
+    encryption: Option<Arc<EncryptionKey>>,
 }
 
 impl WalWriter {
-    /// Opens or creates a WAL file.
-    /// If it exists, it MUST be validated first to ensure no partial records at the end.
     pub fn open(path: impl AsRef<Path>, start_seq: SequenceNumber) -> ZamResult<Self> {
-        let file = OpenOptions::new().create(true).append(true).open(path)?;
+        Self::open_inner(path, start_seq, None)
+    }
 
+    pub fn open_encrypted(
+        path: impl AsRef<Path>,
+        start_seq: SequenceNumber,
+        key: Arc<EncryptionKey>,
+    ) -> ZamResult<Self> {
+        Self::open_inner(path, start_seq, Some(key))
+    }
+
+    fn open_inner(
+        path: impl AsRef<Path>,
+        start_seq: SequenceNumber,
+        encryption: Option<Arc<EncryptionKey>>,
+    ) -> ZamResult<Self> {
+        let file = OpenOptions::new().create(true).append(true).open(path)?;
         Ok(Self {
             file: BufWriter::new(file),
             current_seq: start_seq,
+            encryption,
         })
     }
 
@@ -38,52 +55,31 @@ impl WalWriter {
 
     pub fn append(&mut self, payload: &[u8]) -> ZamResult<SequenceNumber> {
         let seq = self.current_seq;
-        let len = payload.len() as u32;
-
-        // CRC covers: Version + Seq + Len + Payload
-        let mut hasher = Hasher::new();
-        hasher.update(&[WAL_VERSION]);
-        hasher.update(&seq.0.to_be_bytes());
-        hasher.update(&len.to_be_bytes());
-        hasher.update(payload);
-        let crc = hasher.finalize();
-
-        // Write Header
-        self.file.write_all(&WAL_MAGIC)?;
-        self.file.write_u8(WAL_VERSION)?;
-        self.file.write_u32::<BigEndian>(crc)?;
-        self.file.write_u64::<BigEndian>(seq.0)?;
-        self.file.write_u32::<BigEndian>(len)?;
-
-        // Write Payload
-        self.file.write_all(payload)?;
-
-        // Flush to OS. Higher level should call sync() for durability.
-        self.file.flush()?;
-
-        self.current_seq = seq.next();
+        self.append_at_seq(seq, payload)?;
         Ok(seq)
     }
 
-    /// Writes a record at a specific sequence number, advancing `current_seq` if
-    /// necessary. Used during WAL compaction to preserve original seq numbering
-    /// so that the next local-event seq continues from the correct position.
     pub fn append_at_seq(&mut self, seq: SequenceNumber, payload: &[u8]) -> ZamResult<()> {
-        let len = payload.len() as u32;
+        let (version, encoded) = match &self.encryption {
+            Some(key) => (WAL_VERSION_ENCRYPTED, key.encrypt(payload)?),
+            None => (WAL_VERSION, payload.to_vec()),
+        };
+
+        let len = encoded.len() as u32;
 
         let mut hasher = Hasher::new();
-        hasher.update(&[WAL_VERSION]);
+        hasher.update(&[version]);
         hasher.update(&seq.0.to_be_bytes());
         hasher.update(&len.to_be_bytes());
-        hasher.update(payload);
+        hasher.update(&encoded);
         let crc = hasher.finalize();
 
         self.file.write_all(&WAL_MAGIC)?;
-        self.file.write_u8(WAL_VERSION)?;
+        self.file.write_u8(version)?;
         self.file.write_u32::<BigEndian>(crc)?;
         self.file.write_u64::<BigEndian>(seq.0)?;
         self.file.write_u32::<BigEndian>(len)?;
-        self.file.write_all(payload)?;
+        self.file.write_all(&encoded)?;
         self.file.flush()?;
 
         if seq.next() > self.current_seq {
@@ -99,29 +95,53 @@ impl WalWriter {
 
 pub struct WalScanner {
     file: File,
+    encryption: Option<Arc<EncryptionKey>>,
 }
 
 impl WalScanner {
     pub fn open(path: impl AsRef<Path>) -> ZamResult<Self> {
-        let file = File::open(path)?;
-        Ok(Self { file })
+        Self::open_inner(path, None)
     }
 
-    /// Scans the WAL and returns an iterator over valid records.
-    /// It stops at the first corruption or partial write.
+    pub fn open_encrypted(
+        path: impl AsRef<Path>,
+        key: Arc<EncryptionKey>,
+    ) -> ZamResult<Self> {
+        Self::open_inner(path, Some(key))
+    }
+
+    fn open_inner(path: impl AsRef<Path>, encryption: Option<Arc<EncryptionKey>>) -> ZamResult<Self> {
+        let file = File::open(path)?;
+        Ok(Self { file, encryption })
+    }
+
     pub fn scan(self) -> WalIterator {
         WalIterator {
             file: self.file,
             offset: 0,
+            encryption: self.encryption,
         }
     }
 
-    /// Returns the last valid sequence number and the position after it.
     pub fn recover(path: impl AsRef<Path>) -> ZamResult<(Option<SequenceNumber>, u64)> {
+        Self::recover_inner(path, None)
+    }
+
+    pub fn recover_encrypted(
+        path: impl AsRef<Path>,
+        key: Arc<EncryptionKey>,
+    ) -> ZamResult<(Option<SequenceNumber>, u64)> {
+        Self::recover_inner(path, Some(key))
+    }
+
+    fn recover_inner(
+        path: impl AsRef<Path>,
+        encryption: Option<Arc<EncryptionKey>>,
+    ) -> ZamResult<(Option<SequenceNumber>, u64)> {
         if !path.as_ref().exists() {
             return Ok((None, 0));
         }
-        let scanner = WalScanner::open(&path)?;
+        let scanner = Self::open_inner(&path, encryption)?;
         let mut it = scanner.scan();
         let mut last_seq = None;
         let mut last_pos = 0;
@@ -146,7 +166,8 @@ impl WalScanner {
 
 pub struct WalIterator {
     file: File,
-    offset: u64,
+    pub offset: u64,
+    encryption: Option<Arc<EncryptionKey>>,
 }
 
 impl Iterator for WalIterator {
@@ -161,34 +182,29 @@ impl Iterator for WalIterator {
         if bytes_read == 0 {
             return None;
         }
-
         if bytes_read < WAL_HEADER_SIZE {
             return Some(Err(ZamError::Corruption("Partial header at EOF".into())));
         }
 
         let mut rdr = io::Cursor::new(&header);
 
-        // 1. Verify Magic
         let mut magic = [0u8; 4];
         if let Err(e) = rdr.read_exact(&mut magic) {
             return Some(Err(e.into()));
         }
         if magic != WAL_MAGIC {
             return Some(Err(ZamError::Corruption(format!(
-                "Invalid magic: {:?}",
-                magic
+                "Invalid magic: {:?}", magic
             ))));
         }
 
-        // 2. Read Metadata
         let version = match rdr.read_u8() {
             Ok(v) => v,
             Err(e) => return Some(Err(e.into())),
         };
-        if version != WAL_VERSION {
+        if version != WAL_VERSION && version != WAL_VERSION_ENCRYPTED {
             return Some(Err(ZamError::Corruption(format!(
-                "Unsupported version: {}",
-                version
+                "Unsupported WAL version: {}", version
             ))));
         }
 
@@ -206,29 +222,44 @@ impl Iterator for WalIterator {
             Err(e) => return Some(Err(e.into())),
         } as usize;
 
-        // 3. Read Payload
-        let mut payload = vec![0u8; len];
-        if let Err(e) = self.file.read_exact(&mut payload) {
+        let mut raw = vec![0u8; len];
+        if let Err(e) = self.file.read_exact(&mut raw) {
             if e.kind() == io::ErrorKind::UnexpectedEof {
                 return Some(Err(ZamError::Corruption("Partial payload at EOF".into())));
             }
             return Some(Err(e.into()));
         }
 
-        // 4. Verify CRC
+        // Verify CRC (covers encrypted bytes when version == 2)
         let mut hasher = Hasher::new();
         hasher.update(&[version]);
         hasher.update(&seq.0.to_be_bytes());
         hasher.update(&(len as u32).to_be_bytes());
-        hasher.update(&payload);
+        hasher.update(&raw);
         let actual_crc = hasher.finalize();
-
         if actual_crc != expected_crc {
             return Some(Err(ZamError::Corruption(format!(
-                "CRC mismatch for sequence {}: expected {}, got {}",
+                "CRC mismatch for seq {}: expected {}, got {}",
                 seq, expected_crc, actual_crc
             ))));
         }
+
+        // Decrypt if needed
+        let payload = if version == WAL_VERSION_ENCRYPTED {
+            match &self.encryption {
+                Some(key) => match key.decrypt(&raw) {
+                    Ok(p) => p,
+                    Err(e) => return Some(Err(e)),
+                },
+                None => {
+                    return Some(Err(ZamError::Config(
+                        "WAL is encrypted but no key was provided -- use --key-file".into(),
+                    )))
+                }
+            }
+        } else {
+            raw
+        };
 
         self.offset += (WAL_HEADER_SIZE + len) as u64;
         Some(Ok(WalRecord { seq, payload }))
@@ -265,6 +296,34 @@ mod tests {
     }
 
     #[test]
+    fn test_wal_encrypted_roundtrip() -> ZamResult<()> {
+        let dir = tempdir()?;
+        let path = dir.path().join("enc.wal");
+        let key = Arc::new(EncryptionKey::generate()?);
+
+        let mut writer = WalWriter::open_encrypted(&path, SequenceNumber::ZERO, Arc::clone(&key))?;
+        writer.append(b"patient-data-secret")?;
+        writer.append(b"another-record")?;
+        writer.sync()?;
+
+        // Reading WITHOUT key must fail
+        let scanner = WalScanner::open(&path)?;
+        let err = scanner.scan().next().unwrap().unwrap_err();
+        assert!(
+            matches!(err, ZamError::Config(_)),
+            "expected Config error, got {err:?}"
+        );
+
+        // Reading WITH key must succeed
+        let scanner = WalScanner::open_encrypted(&path, Arc::clone(&key))?;
+        let mut it = scanner.scan();
+        assert_eq!(it.next().unwrap().unwrap().payload, b"patient-data-secret");
+        assert_eq!(it.next().unwrap().unwrap().payload, b"another-record");
+        assert!(it.next().is_none());
+        Ok(())
+    }
+
+    #[test]
     fn test_wal_recovery_partial_write() -> ZamResult<()> {
         let dir = tempdir()?;
         let path = dir.path().join("test.wal");
@@ -275,20 +334,16 @@ mod tests {
             writer.sync()?;
         }
 
-        // Manually append garbage (partial header)
         {
             let mut f = OpenOptions::new().append(true).open(&path)?;
             f.write_all(&WAL_MAGIC)?;
             f.write_all(&[WAL_VERSION])?;
-            // Missing CRC, Seq, Len, Payload
         }
 
         let (last_seq, pos) = WalScanner::recover(&path)?;
         assert_eq!(last_seq, Some(SequenceNumber(0)));
-        // Position should be exactly after the first record
         let first_record_size = WAL_HEADER_SIZE + 5;
         assert_eq!(pos, first_record_size as u64);
-
         Ok(())
     }
 
@@ -301,22 +356,18 @@ mod tests {
         writer.append(b"perfect")?;
         writer.sync()?;
 
-        // Corrupt the payload
         {
             let mut f = OpenOptions::new().write(true).open(&path)?;
             f.seek(SeekFrom::Start((WAL_HEADER_SIZE + 1) as u64))?;
-            f.write_all(b"x")?; // Change 'p' to 'x'
+            f.write_all(b"x")?;
         }
 
         let scanner = WalScanner::open(&path)?;
         let mut it = scanner.scan();
-        let res = it.next().unwrap();
-
-        match res {
+        match it.next().unwrap() {
             Err(ZamError::Corruption(msg)) => assert!(msg.contains("CRC mismatch")),
-            _ => panic!("Expected CRC mismatch error, got {:?}", res),
+            other => panic!("Expected CRC mismatch error, got {:?}", other),
         }
-
         Ok(())
     }
 }
