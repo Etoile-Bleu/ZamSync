@@ -21,6 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("keygen")  => cmd::keygen(&args),
         Some("bench")   => cmd::bench(&args),
         Some("daemon")  => cmd::daemon(&args),
+        Some("audit")   => cmd::audit(&args),
         _ => {
             cmd::usage();
             std::process::exit(1);
