@@ -1,4 +1,4 @@
-# ZamSync — Resilient Offline-First Synchronization Engine
+# ZamSync -- Resilient Offline-First Synchronization Engine
 
 ZamSync is a systems-level synchronization engine designed for environments where network connectivity is unreliable, intermittent, or extremely low-bandwidth.
 
@@ -12,83 +12,113 @@ Reliable digital infrastructure is still a major challenge in remote regions wor
 
 In countries with complex geography such as Bhutan, large parts of the territory are composed of high-altitude terrain, making connectivity inconsistent across villages, clinics, and administrative centers.
 
-Public digital transformation initiatives such as national e-health systems (e.g., electronic patient record systems like ePIS) face recurring challenges:
+Public digital transformation initiatives such as national e-health systems face recurring challenges:
 
 - unstable or intermittent connectivity
 - high latency links (2G / satellite / constrained mobile networks)
 - frequent disconnections during data synchronization
 - fallback to manual or paper-based workflows during outages
 
-This leads to a fundamental issue:
-
-> Most modern synchronization systems assume stable connectivity, which does not hold in these environments.
-
----
-
-## Problem Statement
-
-Traditional approaches (REST APIs, JSON-based synchronization, cloud-first architectures) introduce:
-
-- high protocol overhead
-- inefficient bandwidth usage
-- poor resilience to disconnections
-- inability to resume transfers at fine granularity
-- strong dependency on persistent connectivity
-
-ZamSync is designed to operate under the opposite assumption:
-
-> The network is unreliable by default.
-
 ---
 
 ## Design Goals
 
-ZamSync aims to provide a synchronization layer that is:
+ZamSync is:
 
 - offline-first by design
 - resilient to frequent and unpredictable disconnections
 - highly bandwidth-efficient
 - deterministic and replay-safe
-- capable of exact resumability after failure
-- suitable for low-resource devices in constrained environments
+- domain-agnostic (no healthcare-specific logic inside the engine)
 
 ---
 
-## System Architecture
+## Architecture
 
-### 1. Storage Layer
+ZamSync uses **hexagonal architecture** (ports and adapters). The sync core is a set of pure Rust traits with no I/O. Storage and transport are pluggable adapters.
 
-- Local persistent database (SQLite or embedded key-value store)
-- Write-Ahead Log (WAL) as the source of truth
-- Append-only event model
-- State reconstruction from deterministic event replay
+```
+zamsync-core        -- Event, HLC, VersionVector, SyncMessage, port traits
+zamsync-storage     -- WAL event store, file peer store, ZamEngine
+zamsync-network     -- TCP transport, binary wire protocol
+zamsync-testing     -- In-memory adapters, MockTransport, run_direct_sync
+zamsync (binary)    -- CLI: info, submit
+```
+
+### Port Traits
+
+```rust
+// Implement StateStore to project events into your domain model
+pub trait StateStore {
+    fn apply_event(&mut self, seq: SequenceNumber, event: &Event) -> ZamResult<()>;
+    fn last_applied_seq(&self) -> Option<SequenceNumber>;
+}
+```
+
+The engine `ZamEngine<E: EventStore, P: PeerStore, S: StateStore>` is generic over all I/O. The WAL-backed stack is accessible via `ZamEngine::open_wal(data_dir, node_id, state)`.
+
+### Sync Protocol
+
+Peers exchange `SyncMessage` frames. A session:
+
+1. Both sides send a `Handshake` carrying their Version Vector.
+2. Each side computes gaps and pushes missing `EventBatch` messages.
+3. Each side sends `SyncComplete` when done.
+
+Events are idempotent: duplicate deliveries are dropped via VV check.
 
 ---
 
-### 2. Synchronization Layer
+## Getting Started
 
-- Event-based replication model
-- Sequence-based or version-based diff detection
-- Incremental synchronization using missing event ranges
-- Idempotent application of events across nodes
+### Build
+
+```bash
+cargo build --release
+```
+
+### CLI
+
+```bash
+# Show node status (creates data dir on first run)
+./target/release/zamsync info /var/lib/zamsync/node1
+
+# Submit an event
+./target/release/zamsync submit /var/lib/zamsync/node1 "hello world"
+```
+
+Node identity is stored in `<data-dir>/.node_id` and generated automatically on first start.
+
+### Using the Engine in Your Application
+
+```rust
+use zamsync_storage::ZamEngine;
+use zamsync_core::{NodeId, ports::StateStore, Event, SequenceNumber, ZamResult};
+
+struct MyState { /* ... */ }
+
+impl StateStore for MyState {
+    fn apply_event(&mut self, _seq: SequenceNumber, event: &Event) -> ZamResult<()> {
+        // project the event into your domain model
+        Ok(())
+    }
+    fn last_applied_seq(&self) -> Option<SequenceNumber> { None }
+}
+
+let mut engine = ZamEngine::open_wal("./data", NodeId(1), MyState { /* ... */ })?;
+engine.submit(1, b"my payload".to_vec())?;
+engine.sync()?; // flush WAL and persist replication state
+```
 
 ---
 
-### 3. Transport Layer
+## Testing
 
-- Lightweight binary protocol optimized for minimal overhead
-- Chunk-based transfer system for large payloads
-- Explicit acknowledgment mechanism (range or bitmap-based)
-- Full resumability after interruption without retransfer
+```bash
+cargo test --workspace
+```
 
----
-
-### 4. Serialization Layer
-
-- Compact binary encoding (varint-based structures)
-- Optional compression layer (e.g. zstd)
-- Schema-driven event representation
-- Optional dictionary encoding for frequent domain terms
+The `zamsync-testing` crate provides in-memory adapters and `run_direct_sync` for convergence tests without any I/O.
 
 ---
 
@@ -97,69 +127,12 @@ ZamSync aims to provide a synchronization layer that is:
 The system is explicitly designed to tolerate:
 
 - frequent network disconnections
-- high packet loss rates
+- high packet loss
 - long offline periods
 - partial transfers
-- corrupted or incomplete transmissions
+- corrupted or incomplete WAL entries (detected via CRC32)
 
-All operations are retry-safe and idempotent by design.
-
----
-
-## Data Integrity Model
-
-ZamSync enforces:
-
-- per-chunk checksum validation
-- event-level integrity verification
-- replay-safe event application
-- explicit detection of corruption or incomplete state
-
-No silent data loss is permitted under any failure scenario.
-
----
-
-## Testing Strategy
-
-Every component must be validated under realistic conditions.
-
-### Unit Testing
-- serialization correctness
-- WAL consistency
-- event validation logic
-- edge-case input handling
-
-### Integration Testing
-- storage and synchronization interaction
-- transport and recovery behavior
-
-### Failure Simulation
-- high latency networks
-- packet loss up to extreme levels
-- sudden disconnections
-- corrupted data streams
-
-### Determinism Testing
-- identical state reconstruction across repeated runs
-- consistent sync outcomes across nodes
-
----
-
-## Benchmarking Requirements
-
-All implementations must be measured against baseline approaches such as:
-
-- REST/JSON synchronization
-- naive full-state replication
-- unoptimized file transfer systems
-
-Key metrics:
-
-- bandwidth usage
-- synchronization latency
-- recovery time after failure
-- memory footprint under constrained hardware
-- success rate under simulated network degradation
+All sync operations are retry-safe and idempotent.
 
 ---
 
@@ -167,21 +140,13 @@ Key metrics:
 
 ZamSync explicitly avoids:
 
-- blockchain-based consensus systems
+- blockchain-based consensus
 - cloud-first architectural dependency
-- heavy distributed coordination frameworks
-- unnecessary microservices complexity
+- semantic conflict resolution (this belongs in the StateStore)
 - assumptions of stable connectivity
 
 ---
 
 ## Long-Term Vision
 
-ZamSync is intended as a foundation for:
-
-- offline-first distributed systems
-- resilient synchronization in infrastructure-limited environments
-- low-bandwidth critical data replication systems
-- minimal alternatives to cloud-dependent synchronization tools
-
-The objective is to provide a predictable, deterministic, and robust synchronization engine that operates reliably where conventional systems fail.
+ZamSync is intended as a foundation for offline-first distributed systems in infrastructure-limited environments. The objective is to provide a predictable, deterministic, and robust synchronization engine that operates reliably where conventional systems fail.

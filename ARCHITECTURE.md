@@ -31,7 +31,71 @@ ZamSync does **not** resolve semantic conflicts (e.g., two people editing the sa
 - The application (StateStore) must be written to be a **deterministic reducer**.
 - If two updates to the same field are concurrent, the reducer will receive them in a deterministic order (e.g., $E_{A}$ then $E_{B}$ on every node).
 
-## 5. ZamSync Consistency Contract
+## 4. Hexagonal Architecture (Ports and Adapters)
+
+ZamSync applies hexagonal architecture to decouple the sync core from storage and transport backends.
+
+### Crate Layout
+
+```
+zamsync-core        -- domain types + port traits (no I/O)
+zamsync-storage     -- WAL adapter, file peer store, engine
+zamsync-network     -- TCP transport adapter, binary wire protocol
+zamsync-testing     -- in-memory adapters, mock transport, helpers
+zamsync (binary)    -- CLI entry point
+```
+
+### Port Traits (zamsync-core::ports)
+
+| Trait        | Responsibility |
+|--------------|----------------|
+| `EventStore` | Append and scan durable events |
+| `PeerStore`  | Persist and load `ReplicationState` |
+| `StateStore` | Domain projection: apply events to application state |
+| `Transport`  | Send and receive `SyncMessage` to/from peers |
+
+All I/O goes through these traits. The engine (`ZamEngine<E, P, S>`) is generic over them and contains zero filesystem or network code.
+
+### Adapter Implementations
+
+| Adapter             | Implements   | Crate              |
+|---------------------|--------------|--------------------|
+| `WalEventStore`     | `EventStore` | zamsync-storage    |
+| `FilePeerStore`     | `PeerStore`  | zamsync-storage    |
+| `TcpTransport`      | `Transport`  | zamsync-network    |
+| `InMemoryEventStore`| `EventStore` | zamsync-testing    |
+| `InMemoryPeerStore` | `PeerStore`  | zamsync-testing    |
+| `MockTransport`     | `Transport`  | zamsync-testing    |
+
+`StateStore` is always implemented by the application. ZamSync ships no concrete implementation because the projection is domain-specific.
+
+## 5. Sync Protocol
+
+Nodes exchange `SyncMessage` frames during each sync session.
+
+### Message Flow
+
+```
+Initiator (A)                 Responder (B)
+    |                               |
+    |-- Handshake(vv_A) ----------->|
+    |                               |
+    |<-- Handshake(vv_B) -----------|
+    |<-- EventBatch(events B has)---|  (zero or more batches)
+    |<-- SyncComplete --------------|
+    |                               |
+    |-- EventBatch(events A has) -->|  (zero or more batches)
+    |-- SyncComplete -------------->|
+```
+
+### Key Properties
+
+- **Handshake** carries the sender's Version Vector. The responder computes gaps and pushes missing events immediately.
+- **SyncComplete** marks the end of one direction's transmission. Both sides send it before considering the session done.
+- **Idempotency**: `apply_replicated` checks the local VV before writing. Duplicate deliveries are silently ignored.
+- **Gap semantics**: `find_gaps` returns `(node_id, start_seq)` where `start_seq` is the first event the requester needs (inclusive). For nodes never seen, `start_seq = SequenceNumber::ZERO`.
+
+## 6. ZamSync Consistency Contract
 
 This contract defines the strict relationship between the ZamSync Engine and the Application Layer (`StateStore`).
 
@@ -47,7 +111,7 @@ This contract defines the strict relationship between the ZamSync Engine and the
     - For simple fields, the application may use the **HLC Order** as a "Last-Writer-Wins" mechanism.
     - For complex data (e.g., medical logs), the application should use **Multi-Value** or **CRDT** patterns to avoid data loss during concurrent updates.
 
-## 6. Definitions of "Correct State"
+## 7. Definitions of "Correct State"
 
 A node's state is **Correct** if it is the result of replaying the deterministic sequence of all events in its local knowledge.
 A system is **Converged** when all nodes have the same Version Vector and have replayed their logs.
