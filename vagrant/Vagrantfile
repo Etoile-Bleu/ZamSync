@@ -10,6 +10,15 @@
 #   clinic-1 192.168.56.11
 #   clinic-2 192.168.56.12
 #   ...
+#
+# WINDOWS HOSTS: Ansible does not run natively on Windows.
+# After `vagrant up`, provision from inside the hub VM:
+#   vagrant ssh hub
+#   cd /vagrant && bash scripts/bootstrap.sh
+#
+# LINUX / WSL / macOS HOSTS: Ansible can run from the host directly.
+#   pip install ansible
+#   ansible-playbook -i ansible/inventory.ini ansible/playbooks/provision.yml
 
 CLINIC_COUNT = (ENV["CLINIC_COUNT"] || "4").to_i
 ZAMSYNC_VERSION = ENV["ZAMSYNC_VERSION"] || "latest"
@@ -18,13 +27,16 @@ Vagrant.configure("2") do |config|
   config.vm.box = "ubuntu/jammy64"
   config.vm.box_check_update = false
 
-  # Shared provisioner: install Python for Ansible
+  # All VMs: base packages + disable host-key checking between VMs
   config.vm.provision "shell", inline: <<-SHELL
     apt-get update -qq
-    apt-get install -y -qq python3 python3-pip iproute2 curl jq
+    apt-get install -y -qq python3 python3-pip iproute2 curl jq sshpass
+    # Allow vagrant user to SSH between VMs without host-key prompt
+    echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
+    echo "UserKnownHostsFile /dev/null" >> /etc/ssh/ssh_config
   SHELL
 
-  # Hub node
+  # Hub node -- also serves as the Ansible control node on Windows
   config.vm.define "hub" do |hub|
     hub.vm.hostname = "zamsync-hub"
     hub.vm.network "private_network", ip: "192.168.56.10"
@@ -33,6 +45,27 @@ Vagrant.configure("2") do |config|
       vb.memory = 512
       vb.cpus   = 1
     end
+
+    # Install Ansible inside the hub so it can control all other VMs.
+    # This is required on Windows where Ansible cannot run on the host.
+    hub.vm.provision "shell", inline: <<-SHELL
+      pip3 install -q ansible
+      echo "[ansible] Ansible $(ansible --version | head -1) installed on hub"
+    SHELL
+
+    # Copy the Vagrant insecure private key so the hub can SSH into clinics.
+    # All VMs use the same insecure key -- safe in a local test environment.
+    hub.vm.provision "shell", inline: <<-SHELL
+      cp /vagrant/.vagrant/machines/hub/virtualbox/private_key \
+         /home/vagrant/.ssh/id_rsa 2>/dev/null || \
+      cp /etc/vagrant/insecure_private_key \
+         /home/vagrant/.ssh/id_rsa 2>/dev/null || \
+      curl -fsSL https://raw.githubusercontent.com/hashicorp/vagrant/main/keys/vagrant \
+           -o /home/vagrant/.ssh/id_rsa
+      chmod 600 /home/vagrant/.ssh/id_rsa
+      chown vagrant:vagrant /home/vagrant/.ssh/id_rsa
+      echo "[ansible] SSH key ready on hub"
+    SHELL
   end
 
   # Clinic nodes
@@ -45,21 +78,6 @@ Vagrant.configure("2") do |config|
         vb.memory = 512
         vb.cpus   = 1
       end
-    end
-  end
-
-  # Run Ansible provisioning after all VMs are up
-  # Trigger manually: vagrant provision --provision-with ansible
-  # or run: ansible-playbook -i ansible/inventory.ini ansible/playbooks/provision.yml
-  config.vm.define "hub" do |hub|
-    hub.vm.provision "ansible" do |ansible|
-      ansible.playbook       = "ansible/playbooks/provision.yml"
-      ansible.inventory_path = "ansible/inventory.ini"
-      ansible.limit          = "all"
-      ansible.extra_vars     = {
-        zamsync_version: ZAMSYNC_VERSION,
-        clinic_count: CLINIC_COUNT
-      }
     end
   end
 end

@@ -23,28 +23,45 @@ hardware used in rural health facilities.
 
 - [VirtualBox](https://www.virtualbox.org/) >= 7.0
 - [Vagrant](https://www.vagrantup.com/) >= 2.3
-- [Ansible](https://docs.ansible.com/ansible/latest/installation_guide/) >= 2.14
-  (`pip install ansible`)
+
+Ansible runs **inside the hub VM** -- no installation needed on the host.
 
 ## Quick Start
 
-```bash
-# Clone and enter the vagrant directory
-cd vagrant/
+### Windows (PowerShell)
 
-# Boot all VMs (takes ~5 min on first run -- downloads Ubuntu box)
+Ansible does not run natively on Windows. The hub VM acts as the Ansible
+control node instead.
+
+```powershell
+cd vagrant\
+
+# Boot all VMs (~5 min on first run)
 vagrant up
 
-# Provision: install ZamSync, generate PKI, start systemd services
+# SSH into the hub
+vagrant ssh hub
+
+# Inside the hub VM -- provision everything from here
+cd /vagrant
+bash scripts/bootstrap.sh
+
+# Run the Bhutan 2G scenario (still inside hub)
+bash scripts/scenario.sh
+
+# Back on Windows -- open the report
+start C:\dev\ZamSync\vagrant\results\report.html
+```
+
+### Linux / macOS (Ansible on host)
+
+```bash
+pip install ansible
+cd vagrant/
+vagrant up
 ansible-playbook -i ansible/inventory.ini ansible/playbooks/provision.yml
-
-# Run the full scenario (default: Bhutan 2G, 500 events per clinic)
 ansible-playbook -i ansible/inventory.ini ansible/playbooks/scenario.yml
-
-# Open the benchmark report
-open results/report.html      # macOS
-xdg-open results/report.html  # Linux
-start results/report.html     # Windows
+open results/report.html
 ```
 
 ## Network Profiles
