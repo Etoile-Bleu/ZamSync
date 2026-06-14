@@ -1,0 +1,40 @@
+name: E2E Network Simulation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  bhutan-2g:
+    name: Multi-clinic Bhutan 2G simulation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run simulation (2 clinics x 100 events -- CI profile)
+        run: |
+          docker compose -f tests/docker-compose.network.yml \
+            up --build --abort-on-container-exit --force-recreate
+        env:
+          CLINIC_COUNT: "2"
+          EVENTS: "100"
+          PROFILE: "bhutan_2g"
+
+      - name: Upload HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: network-simulation-report
+          path: tests/results/report.html
+          if-no-files-found: warn
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f tests/docker-compose.network.yml down -v

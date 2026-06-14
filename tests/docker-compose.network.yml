@@ -1,0 +1,56 @@
+# Multi-clinic hospital network simulation
+# Docker + Toxiproxy -- no VMs, no Ansible, runs anywhere Docker runs, including CI.
+#
+# Usage (from repo root):
+#   docker compose -f tests/docker-compose.network.yml up --build --abort-on-container-exit
+#
+# Options (env vars):
+#   CLINIC_COUNT=4      number of clinic nodes (default: 4)
+#   EVENTS=500          events per clinic (default: 500)
+#   PROFILE=bhutan_2g   bhutan_2g | satellite | urban_3g (default: bhutan_2g)
+#
+# Report written to: tests/results/report.html
+
+services:
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    container_name: zamsync_net_toxiproxy
+    networks: [net-test]
+
+  hub:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: zamsync_net_hub
+    command: ["serve", "/var/lib/zamsync", "0.0.0.0:9000"]
+    volumes:
+      - hub-data:/var/lib/zamsync
+    networks: [net-test]
+
+  orchestrator:
+    build:
+      context: ..
+      dockerfile: tests/Dockerfile.network
+    container_name: zamsync_net_orchestrator
+    entrypoint: ["/tests/network_scenario.sh"]
+    volumes:
+      - hub-data:/var/lib/zamsync:ro
+      - ./results:/results
+    environment:
+      TOXIPROXY_ADDR: "toxiproxy:8474"
+      TOXIPROXY_HOST: "toxiproxy"
+      HUB_ADDR: "hub:9000"
+      CLINIC_COUNT: "${CLINIC_COUNT:-4}"
+      EVENTS: "${EVENTS:-500}"
+      PROFILE: "${PROFILE:-bhutan_2g}"
+    networks: [net-test]
+    depends_on:
+      - toxiproxy
+      - hub
+
+volumes:
+  hub-data:
+
+networks:
+  net-test:
+    driver: bridge

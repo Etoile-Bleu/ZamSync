@@ -72,27 +72,51 @@ docker compose -f tests/docker-compose.test.yml down -v
 
 ## How to Run in CI (GitHub Actions)
 
-You can run this test in your GitHub Actions workflow by adding a job in `.github/workflows/ci.yml`.
-
-Example workflow step:
+The single-node Bhutan test is part of the standard CI workflow:
 
 ```yaml
   resilience-test:
     name: E2E Network Resilience Test (Bhutan 2G)
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Run E2E Resilience Test
-        run: |
-          docker compose -f tests/docker-compose.test.yml up --build --abort-on-container-exit --force-recreate
-
-      - name: Clean up Docker Compose
-        if: always()
-        run: |
-          docker compose -f tests/docker-compose.test.yml down -v
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - run: docker compose -f tests/docker-compose.test.yml up --build --abort-on-container-exit --force-recreate
+      - if: always()
+        run: docker compose -f tests/docker-compose.test.yml down -v
 ```
+
+---
+
+## Multi-clinic Hospital Network Simulation
+
+`docker-compose.network.yml` runs a full multi-node scenario: N clinics in parallel
+over a Toxiproxy-throttled link to a hub, then generates an HTML report comparing
+ZamSync against IPFS.
+
+```bash
+# Default: 4 clinics x 500 events, Bhutan 2G profile
+docker compose -f tests/docker-compose.network.yml \
+  up --build --abort-on-container-exit
+
+# Report written to tests/results/report.html
+start tests\results\report.html   # Windows
+open  tests/results/report.html   # Linux
+```
+
+Override options:
+
+```bash
+PROFILE=satellite EVENTS=2000 CLINIC_COUNT=8 \
+  docker compose -f tests/docker-compose.network.yml \
+  up --build --abort-on-container-exit
+```
+
+| Profile | Latency | Bandwidth |
+|---------|---------|-----------|
+| `bhutan_2g` | 600ms ± 100ms | 30 kbps |
+| `satellite` | 1200ms ± 200ms | 100 kbps |
+| `urban_3g` | 80ms ± 20ms | 1 Mbps |
+
+The full multi-clinic simulation is also run in CI via `.github/workflows/e2e-network.yml`
+with `CLINIC_COUNT=2 EVENTS=100` for speed; the HTML report is uploaded as an artifact.
