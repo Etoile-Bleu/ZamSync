@@ -24,4 +24,4 @@ metrics.workspace = true
 tempfile.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
-zamsync-testing = { version = "1.0.3", path = "../zamsync-testing" }
+zamsync-testing = { path = "../zamsync-testing" }
