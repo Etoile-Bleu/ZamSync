@@ -183,15 +183,16 @@ Objective: prove with reproducible metrics that ZamSync outperforms alternatives
 
 ## Phase 14: Concurrent Hub
 
-Discovered during Phase 13 field simulation: the hub serves one peer at a time
+Discovered during Phase 13 field simulation: the hub served one peer at a time
 (single-thread accept loop in `src/cmd/serve.rs`). With 4 clinics syncing in
-parallel, they queue -- total wall time = sum of individual sync times instead
+parallel, they queued -- total wall time = sum of individual sync times instead
 of max. At 30 kbps / 600ms latency, 4 clinics took 14s instead of the expected ~3-4s.
 
-- [ ] **Concurrent peer handling**: spawn one thread (or async task) per accepted connection; hub processes N clinics simultaneously instead of queuing them
-- [ ] **Connection limit flag**: `--max-peers 16` to cap concurrent connections and prevent resource exhaustion on low-memory devices
-- [ ] **Benchmark**: re-run Phase 13 simulation after fix; expected total sync time to drop from ~14s to ~3-4s for 4 simultaneous clinics at 30 kbps
-- [ ] **Backpressure**: if `--max-peers` is reached, hub queues incoming connections with a configurable timeout instead of rejecting them
+- [x] **Concurrent peer handling**: spawn one named thread per accepted connection (`sync-peer-N` / `tls-peer-N`); hub processes N clinics simultaneously; each worker opens its own `ZamEngine` instance -- no shared mutable state
+- [x] **Connection limit flag**: `--max-peers 16` (default) caps concurrent sessions; stdlib counting semaphore, no external dependencies; works for both TCP and TLS modes
+- [x] **Backpressure**: when at `--max-peers` capacity, the accept loop blocks after accepting -- the connected client waits for a slot instead of being rejected; OS accept queue absorbs bursts
+- [x] **Correctness test**: 4-client concurrent hub test (`test_concurrent_hub_four_clients`) with a `Barrier` to synchronize all clients, verifies 20 events converge on hub with no deadlock or data loss
+- [ ] **Benchmark**: re-run Phase 13 Docker simulation after fix; expected total sync time ~3-4s for 4 simultaneous clinics at 30 kbps (was 14s sequential)
 
 ## First-Deployment Target
 

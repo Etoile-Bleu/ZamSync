@@ -7,4 +7,4 @@ pub use tls::{
     generate_credentials, install_crypto_provider, sign_node_cert, GeneratedCredentials,
     SignedNodeCredentials, TlsConfig,
 };
-pub use transport::{TcpTransport, TlsTcpTransport};
+pub use transport::{TcpPeerTransport, TcpTransport, TlsPeerTransport, TlsTcpTransport};
