@@ -3,6 +3,7 @@ use tempfile::tempdir;
 use zamsync_core::ports::StateStore;
 use zamsync_core::{Event, NodeId, SequenceNumber, ZamResult};
 use zamsync_storage::{FilePeerStore, LogSorter, WalEventStore, ZamEngine};
+use zamsync_testing::run_direct_sync;
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 struct KVState {
@@ -74,6 +75,63 @@ fn test_split_brain_convergence() -> Result<(), Box<dyn std::error::Error>> {
         final_state_a, final_state_b,
         "final states are not identical"
     );
+
+    Ok(())
+}
+
+#[test]
+fn test_three_node_split_brain_convergence() -> Result<(), Box<dyn std::error::Error>> {
+    let dir_a = tempdir()?;
+    let dir_b = tempdir()?;
+    let dir_c = tempdir()?;
+
+    let mut engine_a = ZamEngine::open_wal(dir_a.path(), NodeId(1), KVState::default())?;
+    let mut engine_b = ZamEngine::open_wal(dir_b.path(), NodeId(2), KVState::default())?;
+    let mut engine_c = ZamEngine::open_wal(dir_c.path(), NodeId(3), KVState::default())?;
+
+    // Full partition: each node produces events with no knowledge of the others.
+    engine_a.submit(1, b"A1".to_vec())?;
+    engine_a.submit(1, b"A2".to_vec())?;
+    engine_b.submit(1, b"B1".to_vec())?;
+    engine_c.submit(1, b"C1".to_vec())?;
+    engine_c.submit(1, b"C2".to_vec())?;
+    engine_c.submit(1, b"C3".to_vec())?;
+
+    // Full mesh sync in one pass: A↔B → B↔C → A↔C.
+    // After A↔B: both have {A1,A2,B1}.
+    // After B↔C: both have {A1,A2,B1,C1,C2,C3}.
+    // After A↔C: A learns {C1,C2,C3} from C.
+    run_direct_sync(&mut engine_a, &mut engine_b)?;
+    run_direct_sync(&mut engine_b, &mut engine_c)?;
+    run_direct_sync(&mut engine_a, &mut engine_c)?;
+
+    // Every node must hold all 6 events.
+    let count_a = engine_a.scan_events()?.count();
+    let count_b = engine_b.scan_events()?.count();
+    let count_c = engine_c.scan_events()?.count();
+    assert_eq!(count_a, 6, "A must have all 6 events after full mesh sync");
+    assert_eq!(count_b, 6, "B must have all 6 events after full mesh sync");
+    assert_eq!(count_c, 6, "C must have all 6 events after full mesh sync");
+
+    // Determinism: sorted event streams must be identical on all three nodes.
+    let sorted_a: Vec<Vec<u8>> = engine_a.sorted_scan()?.map(|r| r.unwrap().payload).collect();
+    let sorted_b: Vec<Vec<u8>> = engine_b.sorted_scan()?.map(|r| r.unwrap().payload).collect();
+    let sorted_c: Vec<Vec<u8>> = engine_c.sorted_scan()?.map(|r| r.unwrap().payload).collect();
+
+    assert_eq!(sorted_a, sorted_b, "A and B must converge to identical sorted streams");
+    assert_eq!(sorted_b, sorted_c, "B and C must converge to identical sorted streams");
+
+    // VVs must agree on every node's highest seq.
+    let vv_a = engine_a.replication_state().local_vv.clone();
+    let vv_b = engine_b.replication_state().local_vv.clone();
+    let vv_c = engine_c.replication_state().local_vv.clone();
+    for node_id in [NodeId(1), NodeId(2), NodeId(3)] {
+        let seq_a = vv_a.get(node_id);
+        let seq_b = vv_b.get(node_id);
+        let seq_c = vv_c.get(node_id);
+        assert_eq!(seq_a, seq_b, "VV for node {} must agree: A={:?} B={:?}", node_id.0, seq_a, seq_b);
+        assert_eq!(seq_b, seq_c, "VV for node {} must agree: B={:?} C={:?}", node_id.0, seq_b, seq_c);
+    }
 
     Ok(())
 }

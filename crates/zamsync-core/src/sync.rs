@@ -66,6 +66,114 @@ pub struct ReplicationState {
     pub peers: HashMap<u32, PeerSyncState>,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_vv_update_only_advances() {
+        let mut vv = VersionVector::new();
+        vv.update(NodeId(1), SequenceNumber(5));
+        assert_eq!(vv.get(NodeId(1)), SequenceNumber(5));
+        // Lower seq must not overwrite a higher one.
+        vv.update(NodeId(1), SequenceNumber(3));
+        assert_eq!(vv.get(NodeId(1)), SequenceNumber(5), "VV must never decrease");
+        // Same seq is idempotent.
+        vv.update(NodeId(1), SequenceNumber(5));
+        assert_eq!(vv.get(NodeId(1)), SequenceNumber(5));
+        // Higher seq advances.
+        vv.update(NodeId(1), SequenceNumber(10));
+        assert_eq!(vv.get(NodeId(1)), SequenceNumber(10));
+    }
+
+    #[test]
+    fn test_vv_get_unknown_node_returns_zero() {
+        let vv = VersionVector::new();
+        assert_eq!(vv.get(NodeId(42)), SequenceNumber::ZERO);
+    }
+
+    #[test]
+    fn test_vv_find_gaps_empty_local_needs_everything_from_zero() {
+        let local = VersionVector::new();
+        let mut remote = VersionVector::new();
+        remote.update(NodeId(1), SequenceNumber(10));
+        remote.update(NodeId(2), SequenceNumber(5));
+
+        let gaps: HashMap<u32, SequenceNumber> =
+            local.find_gaps(&remote).into_iter().map(|(n, s)| (n.0, s)).collect();
+        assert_eq!(gaps[&1], SequenceNumber::ZERO, "unknown node: start from seq 0");
+        assert_eq!(gaps[&2], SequenceNumber::ZERO);
+    }
+
+    #[test]
+    fn test_vv_find_gaps_partial_overlap_returns_next_needed() {
+        let mut local = VersionVector::new();
+        local.update(NodeId(1), SequenceNumber(5));
+
+        let mut remote = VersionVector::new();
+        remote.update(NodeId(1), SequenceNumber(10));
+        remote.update(NodeId(2), SequenceNumber(3));
+
+        let gaps: HashMap<u32, SequenceNumber> =
+            local.find_gaps(&remote).into_iter().map(|(n, s)| (n.0, s)).collect();
+        // local has node 1 up to seq 5, remote has 10 → need seq 6 (local.next())
+        assert_eq!(gaps[&1], SequenceNumber(6));
+        // node 2 is unknown to local → need from seq 0
+        assert_eq!(gaps[&2], SequenceNumber::ZERO);
+    }
+
+    #[test]
+    fn test_vv_find_gaps_up_to_date_returns_empty() {
+        let mut local = VersionVector::new();
+        local.update(NodeId(1), SequenceNumber(10));
+
+        let mut remote = VersionVector::new();
+        remote.update(NodeId(1), SequenceNumber(10));
+
+        assert!(local.find_gaps(&remote).is_empty(), "no gap when equal");
+    }
+
+    #[test]
+    fn test_vv_find_gaps_local_ahead_returns_empty() {
+        let mut local = VersionVector::new();
+        local.update(NodeId(1), SequenceNumber(15));
+
+        let mut remote = VersionVector::new();
+        remote.update(NodeId(1), SequenceNumber(10));
+
+        assert!(
+            local.find_gaps(&remote).is_empty(),
+            "local is ahead, nothing to pull"
+        );
+    }
+
+    #[test]
+    fn test_vv_find_gaps_start_is_inclusive_next_seq() {
+        let mut local = VersionVector::new();
+        local.update(NodeId(1), SequenceNumber(3));
+
+        let mut remote = VersionVector::new();
+        remote.update(NodeId(1), SequenceNumber(7));
+
+        let gaps = local.find_gaps(&remote);
+        assert_eq!(gaps.len(), 1);
+        // local has up to seq 3, remote has 7 → first missing is seq 4 (3.next())
+        assert_eq!(gaps[0], (NodeId(1), SequenceNumber(4)));
+    }
+
+    #[test]
+    fn test_vv_find_gaps_ignores_nodes_not_in_remote() {
+        let mut local = VersionVector::new();
+        local.update(NodeId(1), SequenceNumber(5));
+
+        // remote is empty -- local has events remote doesn't, but that's not a "gap"
+        // (gaps are defined as what the remote has that we don't)
+        let remote = VersionVector::new();
+        assert!(local.find_gaps(&remote).is_empty());
+    }
+}
+
 #[derive(Archive, Deserialize, Serialize, Debug, Clone)]
 #[archive(check_bytes)]
 pub enum SyncMessage {
