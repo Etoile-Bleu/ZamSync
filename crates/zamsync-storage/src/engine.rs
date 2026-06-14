@@ -300,6 +300,9 @@ mod tests {
 
     #[derive(Default)]
     struct Sink;
+
+    type TestEngine =
+        ZamEngine<crate::adapters::WalEventStore, crate::adapters::FilePeerStore, Sink>;
     impl StateStore for Sink {
         fn apply_event(&mut self, _seq: SequenceNumber, _e: &Event) -> ZamResult<()> {
             Ok(())
@@ -327,11 +330,7 @@ mod tests {
     fn setup_hub_two_clinics(
         tmp: &std::path::Path,
         policy: AccessPolicy,
-    ) -> ZamResult<(
-        ZamEngine<crate::adapters::WalEventStore, crate::adapters::FilePeerStore, Sink>,
-        ZamEngine<crate::adapters::WalEventStore, crate::adapters::FilePeerStore, Sink>,
-        ZamEngine<crate::adapters::WalEventStore, crate::adapters::FilePeerStore, Sink>,
-    )> {
+    ) -> ZamResult<(TestEngine, TestEngine, TestEngine)> {
         for sub in ["hub", "src_a", "src_b", "fresh_a", "fresh_b"] {
             std::fs::create_dir_all(tmp.join(sub))?;
         }
