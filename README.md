@@ -313,8 +313,8 @@ zamsync sign /var/lib/clinic-b --ca /var/lib/hub
 # 3. Copy clinic directories to physical devices
 scp -r /var/lib/clinic-a pi@clinic-a.local:/var/lib/zamsync
 
-# 4. Hub serves with mTLS and per-clinic isolation
-zamsync serve /var/lib/hub 0.0.0.0:7000 --tls --policy own
+# 4. Hub serves with mTLS, per-clinic isolation, and concurrent connections
+zamsync serve /var/lib/hub 0.0.0.0:7000 --tls --policy own --max-peers 32
 
 # 5. Clinics sync automatically
 zamsync daemon /var/lib/zamsync 192.168.1.10:7000 $(cat /var/lib/hub/.node_id) \
@@ -405,6 +405,24 @@ curl -N http://localhost:8080/events/stream
 The HTTP server runs in a dedicated OS thread and opens a fresh engine per request -- no shared mutable state, same pattern as the CLI.
 
 ---
+
+## Concurrent Hub
+
+The hub spawns one thread per accepted connection so all clinics sync in
+parallel. A counting semaphore prevents resource exhaustion on constrained
+hardware:
+
+```bash
+# Default: up to 16 simultaneous peers
+zamsync serve ./hub 0.0.0.0:7000 --policy own
+
+# RPi cluster with 64 clinics
+zamsync serve ./hub 0.0.0.0:7000 --policy own --max-peers 64
+```
+
+When `--max-peers` is reached the hub accepts the TCP connection but blocks
+the session start until a slot frees -- clients queue rather than being
+rejected.
 
 ## Prometheus Metrics
 

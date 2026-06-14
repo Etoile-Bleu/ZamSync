@@ -161,9 +161,16 @@ else
   HUB_EVENTS=0
 fi
 
-# hub serves one connection at a time -- detect sequential queuing from sync times
+# Detect concurrent vs sequential serving:
+# - concurrent: total_wall ≈ max(individual sync times)  →  max/sum > 0.7
+# - sequential: total_wall ≈ sum(individual sync times)  →  max/sum ≤ 0.7
 MAX_SYNC=$(jq -s 'map(.sync_duration_s) | max' "$RESULTS"/clinic-*.json 2>/dev/null || echo 0)
-SERVING_MODE="sequential"
+SUM_SYNC=$(jq -s 'map(.sync_duration_s) | add' "$RESULTS"/clinic-*.json 2>/dev/null || echo 1)
+if [ "$SUM_SYNC" -gt 0 ] && [ "$(( MAX_SYNC * 100 / SUM_SYNC ))" -gt 70 ]; then
+  SERVING_MODE="concurrent"
+else
+  SERVING_MODE="sequential"
+fi
 
 printf '{"node":"hub","role":"hub","events":%s,"wal_size_bytes":%s,"sync_duration_s":0,"bytes_sent":0,"memory_rss_kb":4096}\n' \
   "$HUB_EVENTS" "$HUB_WAL" > "$RESULTS/hub.json"
