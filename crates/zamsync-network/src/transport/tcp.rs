@@ -216,7 +216,11 @@ mod tests {
 
         let b_count = b_thread.join().unwrap();
 
-        assert_eq!(eng_a.state().count, 5, "A should have all 5 events after sync");
+        assert_eq!(
+            eng_a.state().count,
+            5,
+            "A should have all 5 events after sync"
+        );
         assert_eq!(b_count, 5, "B should have all 5 events after sync");
         assert_eq!(stats.events_sent, 3, "A sent its 3 events to B");
         assert_eq!(stats.events_received, 2, "A received B's 2 events");

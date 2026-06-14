@@ -96,9 +96,7 @@ mod tests {
     #[test]
     fn test_frame_compression_roundtrip() {
         // JSON-like payload that compresses well
-        let payload: Vec<u8> = (0..512)
-            .map(|i| b"abcdefghij"[i % 10])
-            .collect();
+        let payload: Vec<u8> = (0..512).map(|i| b"abcdefghij"[i % 10]).collect();
         let mut buf = Vec::new();
         write_frame(&mut buf, &payload).unwrap();
 

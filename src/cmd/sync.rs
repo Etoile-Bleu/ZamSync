@@ -1,5 +1,8 @@
 use crate::metrics::start_metrics_server;
-use crate::util::{data_dir, flag_value, is_transient, load_encryption_key, load_schema, load_tls_config, node_id_from_dir, open_engine};
+use crate::util::{
+    data_dir, flag_value, is_transient, load_encryption_key, load_schema, load_tls_config,
+    node_id_from_dir, open_engine,
+};
 use zamsync_core::NodeId;
 use zamsync_network::{TcpTransport, TlsTcpTransport};
 use zamsync_storage::SyncSession;

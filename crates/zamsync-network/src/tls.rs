@@ -74,10 +74,9 @@ impl TlsConfig {
             .add(ca)
             .map_err(|e| ZamError::Config(format!("invalid CA cert: {e}")))?;
 
-        let client_verifier =
-            rustls::server::WebPkiClientVerifier::builder(Arc::new(client_roots))
-                .build()
-                .map_err(|e| ZamError::Config(format!("client verifier: {e}")))?;
+        let client_verifier = rustls::server::WebPkiClientVerifier::builder(Arc::new(client_roots))
+            .build()
+            .map_err(|e| ZamError::Config(format!("client verifier: {e}")))?;
 
         let config = rustls::ServerConfig::builder()
             .with_client_cert_verifier(client_verifier)
@@ -218,10 +217,10 @@ mod tests {
         let hub = generate_credentials().expect("hub keygen failed");
 
         // Sign two separate clinic certs from the same CA
-        let clinic_a = sign_node_cert(&hub.ca_cert_pem, &hub.ca_key_pem)
-            .expect("clinic_a signing failed");
-        let clinic_b = sign_node_cert(&hub.ca_cert_pem, &hub.ca_key_pem)
-            .expect("clinic_b signing failed");
+        let clinic_a =
+            sign_node_cert(&hub.ca_cert_pem, &hub.ca_key_pem).expect("clinic_a signing failed");
+        let clinic_b =
+            sign_node_cert(&hub.ca_cert_pem, &hub.ca_key_pem).expect("clinic_b signing failed");
 
         // Both clinics share the same CA cert
         assert_eq!(clinic_a.ca_cert_pem, hub.ca_cert_pem);
@@ -245,7 +244,9 @@ mod tests {
 
         // Both sides should produce valid TLS configs without error
         hub_tls.server_config().expect("hub server_config failed");
-        clinic_a_tls.client_config().expect("clinic_a client_config failed");
+        clinic_a_tls
+            .client_config()
+            .expect("clinic_a client_config failed");
     }
 
     #[test]
@@ -286,18 +287,24 @@ mod tests {
         root_store.add(hub_ca_der[0].clone()).expect("add hub CA");
 
         // The rogue cert was issued by its own CA, not the hub CA -- should not verify
-        let verifier = rustls::server::WebPkiClientVerifier::builder(std::sync::Arc::new(root_store))
-            .build()
-            .expect("build verifier");
+        let verifier =
+            rustls::server::WebPkiClientVerifier::builder(std::sync::Arc::new(root_store))
+                .build()
+                .expect("build verifier");
 
         // rustls WebPkiClientVerifier::verify_client_cert returns an error for unknown issuers
         let now = rustls::pki_types::UnixTime::now();
         let result = verifier.verify_client_cert(&rogue_cert_der[0], &[], now);
-        assert!(result.is_err(), "rogue cert must be rejected by hub CA verifier");
+        assert!(
+            result.is_err(),
+            "rogue cert must be rejected by hub CA verifier"
+        );
 
         // Confirm the rogue client config itself cannot be built with the hub CA as server root
         // (rogue's cert will fail at the server-side verification)
-        rogue_tls.client_config().expect("client config builds -- rejection happens at handshake");
+        rogue_tls
+            .client_config()
+            .expect("client config builds -- rejection happens at handshake");
     }
 }
 

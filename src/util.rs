@@ -70,7 +70,9 @@ pub fn load_tls_config(dir: &Path) -> Result<TlsConfig, Box<dyn std::error::Erro
     )?)
 }
 
-pub fn load_encryption_key(args: &[String]) -> Result<Option<EncryptionKey>, Box<dyn std::error::Error>> {
+pub fn load_encryption_key(
+    args: &[String],
+) -> Result<Option<EncryptionKey>, Box<dyn std::error::Error>> {
     match flag_value(args, "--key-file") {
         Some(path) => Ok(Some(EncryptionKey::from_file(path)?)),
         None => Ok(None),
@@ -96,9 +98,21 @@ pub fn open_engine(
     node_id: NodeId,
     enc_key: Option<EncryptionKey>,
     schema: PayloadSchema,
-) -> Result<zamsync_storage::ZamEngine<zamsync_storage::WalEventStore, zamsync_storage::FilePeerStore, EventCounter>, Box<dyn std::error::Error>> {
+) -> Result<
+    zamsync_storage::ZamEngine<
+        zamsync_storage::WalEventStore,
+        zamsync_storage::FilePeerStore,
+        EventCounter,
+    >,
+    Box<dyn std::error::Error>,
+> {
     let engine = match enc_key {
-        Some(key) => zamsync_storage::ZamEngine::open_wal_encrypted(dir, node_id, EventCounter::default(), key)?,
+        Some(key) => zamsync_storage::ZamEngine::open_wal_encrypted(
+            dir,
+            node_id,
+            EventCounter::default(),
+            key,
+        )?,
         None => zamsync_storage::ZamEngine::open_wal(dir, node_id, EventCounter::default())?,
     };
     Ok(engine.with_schema(schema))

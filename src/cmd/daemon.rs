@@ -1,5 +1,7 @@
 use crate::metrics::start_metrics_server;
-use crate::util::{data_dir, flag_value, load_encryption_key, load_schema, load_tls_config, node_id_from_dir};
+use crate::util::{
+    data_dir, flag_value, load_encryption_key, load_schema, load_tls_config, node_id_from_dir,
+};
 use std::time::{Duration, Instant};
 use zamsync_core::NodeId;
 use zamsync_network::{TcpTransport, TlsTcpTransport};
@@ -32,7 +34,15 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         let tick_start = Instant::now();
-        match sync_once(&dir, node_id, peer, peer_addr, use_tls, enc_key.as_ref(), schema.clone()) {
+        match sync_once(
+            &dir,
+            node_id,
+            peer,
+            peer_addr,
+            use_tls,
+            enc_key.as_ref(),
+            schema.clone(),
+        ) {
             Ok((sent, received)) => {
                 if sent > 0 || received > 0 {
                     println!(
@@ -63,7 +73,12 @@ fn sync_once(
     schema: PayloadSchema,
 ) -> Result<(usize, usize), Box<dyn std::error::Error>> {
     let engine = match enc_key {
-        Some(key) => ZamEngine::open_wal_encrypted(dir, node_id, crate::util::EventCounter::default(), key.clone())?,
+        Some(key) => ZamEngine::open_wal_encrypted(
+            dir,
+            node_id,
+            crate::util::EventCounter::default(),
+            key.clone(),
+        )?,
         None => ZamEngine::open_wal(dir, node_id, crate::util::EventCounter::default())?,
     };
     let mut engine = engine.with_schema(schema);

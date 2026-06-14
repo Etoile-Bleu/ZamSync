@@ -166,10 +166,9 @@ impl TlsTcpTransport {
 
 impl Transport for TlsTcpTransport {
     fn send(&mut self, peer_id: NodeId, message: &SyncMessage) -> ZamResult<()> {
-        let peer = self
-            .peers
-            .get_mut(&peer_id.0)
-            .ok_or_else(|| ZamError::Protocol(format!("no TLS connection to peer {}", peer_id.0)))?;
+        let peer = self.peers.get_mut(&peer_id.0).ok_or_else(|| {
+            ZamError::Protocol(format!("no TLS connection to peer {}", peer_id.0))
+        })?;
         let mut writer = BufWriter::new(&mut peer.stream);
         protocol::encode(message, &mut writer)
     }
@@ -258,9 +257,7 @@ mod tests {
         assert!(matches!(msg, SyncMessage::Handshake { .. }));
 
         // Reply with SyncComplete
-        server
-            .send(peer_id, &SyncMessage::SyncComplete)
-            .unwrap();
+        server.send(peer_id, &SyncMessage::SyncComplete).unwrap();
 
         let reply = client_handle.join().unwrap();
         assert!(matches!(reply, SyncMessage::SyncComplete));

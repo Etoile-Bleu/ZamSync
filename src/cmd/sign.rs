@@ -20,10 +20,10 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 .ok_or("provide --ca <hub-dir> or both --ca-cert <path> and --ca-key <path>")?;
             let key_path = flag_value(args, "--ca-key")
                 .ok_or("provide --ca <hub-dir> or both --ca-cert <path> and --ca-key <path>")?;
-            let cert = std::fs::read_to_string(cert_path)
-                .map_err(|e| format!("read {cert_path}: {e}"))?;
-            let key = std::fs::read_to_string(key_path)
-                .map_err(|e| format!("read {key_path}: {e}"))?;
+            let cert =
+                std::fs::read_to_string(cert_path).map_err(|e| format!("read {cert_path}: {e}"))?;
+            let key =
+                std::fs::read_to_string(key_path).map_err(|e| format!("read {key_path}: {e}"))?;
             (cert, key)
         }
     };

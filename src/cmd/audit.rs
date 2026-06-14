@@ -99,7 +99,16 @@ fn unix_ms_to_iso(ms: u64) -> String {
     let months: [u64; 12] = [
         31,
         if is_leap(year) { 29 } else { 28 },
-        31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
     ];
     let mut month = 1u32;
     for &dm in &months {

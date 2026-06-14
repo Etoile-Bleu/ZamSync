@@ -78,15 +78,13 @@ impl EncryptionKey {
     /// Decrypt `data` (must be `[nonce: 12][ciphertext][tag: 16]`).
     pub fn decrypt(&self, data: &[u8]) -> ZamResult<Vec<u8>> {
         if data.len() < NONCE_LEN + 16 {
-            return Err(ZamError::Corruption("encrypted WAL payload too short".into()));
+            return Err(ZamError::Corruption(
+                "encrypted WAL payload too short".into(),
+            ));
         }
         let nonce = Nonce::from_slice(&data[..NONCE_LEN]);
-        self.cipher
-            .decrypt(nonce, &data[NONCE_LEN..])
-            .map_err(|_| {
-                ZamError::Corruption(
-                    "WAL decryption failed -- wrong key or tampered data".into(),
-                )
-            })
+        self.cipher.decrypt(nonce, &data[NONCE_LEN..]).map_err(|_| {
+            ZamError::Corruption("WAL decryption failed -- wrong key or tampered data".into())
+        })
     }
 }

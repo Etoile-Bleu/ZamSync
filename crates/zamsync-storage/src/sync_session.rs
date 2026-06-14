@@ -104,7 +104,9 @@ where
                     std::thread::sleep(std::time::Duration::from_millis(10));
                 }
                 Ok(Some(_)) => continue, // Ignore any unexpected messages
-                Err(zamsync_core::ZamError::Io(ref e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                Err(zamsync_core::ZamError::Io(ref e))
+                    if e.kind() == std::io::ErrorKind::UnexpectedEof =>
+                {
                     break; // Graceful close from responder
                 }
                 Err(e) => return Err(e), // Connection cut or other error

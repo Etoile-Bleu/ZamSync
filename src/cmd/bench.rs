@@ -11,7 +11,11 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     // ~64-byte payload: representative of a compact domain event header.
     let payload = b"bench-payload-zamsync-0123456789abcdef0123456789abcdef01234567".to_vec();
 
-    println!("bench: {} events, payload {} bytes", n_events, payload.len());
+    println!(
+        "bench: {} events, payload {} bytes",
+        n_events,
+        payload.len()
+    );
     println!("data : {}", dir.display());
 
     // --- submit ---
@@ -42,7 +46,10 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     println!();
     println!("=== submit ===");
     println!("  time       : {:.3}s", submit_secs);
-    println!("  throughput : {:.0} events/sec", n_events as f64 / submit_secs);
+    println!(
+        "  throughput : {:.0} events/sec",
+        n_events as f64 / submit_secs
+    );
     println!("  wal size   : {} KB", wal_bytes / 1024);
 
     println!();
@@ -55,7 +62,10 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         Some(kb) => {
             let mb = kb / 1024;
             let target = if mb < 100 { "OK" } else { "OVER TARGET" };
-            println!("  rss        : {} KB ({} MB)  [target: <100 MB] -- {}", kb, mb, target);
+            println!(
+                "  rss        : {} KB ({} MB)  [target: <100 MB] -- {}",
+                kb, mb, target
+            );
         }
         None => println!("  rss        : (not available on this platform)"),
     }
@@ -76,7 +86,9 @@ fn rss_kb() -> Option<u64> {
 
 #[cfg(target_os = "windows")]
 fn rss_kb() -> Option<u64> {
-    use windows_sys::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
+    use windows_sys::Win32::System::ProcessStatus::{
+        GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
+    };
     use windows_sys::Win32::System::Threading::GetCurrentProcess;
     unsafe {
         let mut pmc = std::mem::zeroed::<PROCESS_MEMORY_COUNTERS>();

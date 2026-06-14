@@ -37,7 +37,6 @@ impl std::str::FromStr for PayloadSchema {
 }
 
 impl PayloadSchema {
-
     pub fn is_none(&self) -> bool {
         matches!(self, Self::None)
     }
@@ -62,8 +61,7 @@ impl PayloadSchema {
 }
 
 fn json_parse(payload: &[u8]) -> ZamResult<serde_json::Value> {
-    serde_json::from_slice(payload)
-        .map_err(|e| ZamError::Validation(format!("invalid JSON: {e}")))
+    serde_json::from_slice(payload).map_err(|e| ZamError::Validation(format!("invalid JSON: {e}")))
 }
 
 #[cfg(test)]
@@ -78,7 +76,9 @@ mod tests {
 
     #[test]
     fn test_json_accepts_valid() {
-        assert!(PayloadSchema::Json.validate(br#"{"type":"patient_admitted"}"#).is_ok());
+        assert!(PayloadSchema::Json
+            .validate(br#"{"type":"patient_admitted"}"#)
+            .is_ok());
         assert!(PayloadSchema::Json.validate(b"42").is_ok());
         assert!(PayloadSchema::Json.validate(b"null").is_ok());
     }
@@ -107,9 +107,19 @@ mod tests {
     #[test]
     fn test_from_str_round_trip() {
         use std::str::FromStr;
-        assert!(matches!(PayloadSchema::from_str("none").unwrap(), PayloadSchema::None));
-        assert!(matches!(PayloadSchema::from_str("json").unwrap(), PayloadSchema::Json));
-        let PayloadSchema::JsonRequired(fields) = PayloadSchema::from_str("json+type,patient_id").unwrap() else { panic!() };
+        assert!(matches!(
+            PayloadSchema::from_str("none").unwrap(),
+            PayloadSchema::None
+        ));
+        assert!(matches!(
+            PayloadSchema::from_str("json").unwrap(),
+            PayloadSchema::Json
+        ));
+        let PayloadSchema::JsonRequired(fields) =
+            PayloadSchema::from_str("json+type,patient_id").unwrap()
+        else {
+            panic!()
+        };
         assert_eq!(fields, ["type", "patient_id"]);
         assert!(PayloadSchema::from_str("bad").is_err());
     }

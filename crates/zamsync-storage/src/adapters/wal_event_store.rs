@@ -21,7 +21,10 @@ impl WalEventStore {
         Self::open_inner(path, Some(Arc::new(key)))
     }
 
-    fn open_inner(path: impl AsRef<Path>, encryption: Option<Arc<EncryptionKey>>) -> ZamResult<Self> {
+    fn open_inner(
+        path: impl AsRef<Path>,
+        encryption: Option<Arc<EncryptionKey>>,
+    ) -> ZamResult<Self> {
         let (last_seq, end_pos) = match &encryption {
             Some(key) => WalScanner::recover_encrypted(&path, Arc::clone(key))?,
             None => WalScanner::recover(&path)?,
@@ -107,7 +110,9 @@ impl WalEventStore {
         let tmp = self.path.with_extension("wal.tmp");
         {
             let mut w = match &self.encryption {
-                Some(key) => WalWriter::open_encrypted(&tmp, SequenceNumber::ZERO, Arc::clone(key))?,
+                Some(key) => {
+                    WalWriter::open_encrypted(&tmp, SequenceNumber::ZERO, Arc::clone(key))?
+                }
                 None => WalWriter::open(&tmp, SequenceNumber::ZERO)?,
             };
             for (seq, payload) in &kept {
@@ -162,19 +167,21 @@ impl EventStore for WalEventStore {
             Some(key) => WalScanner::open_encrypted(&self.path, Arc::clone(key))?,
             None => WalScanner::open(&self.path)?,
         };
-        let iter = scanner.scan().filter_map(|res| -> Option<ZamResult<Event>> {
-            let record = match res {
-                Ok(r) => r,
-                Err(e) => return Some(Err(e)),
-            };
-            if record.payload.is_empty() {
-                return None;
-            }
-            Some(
-                rkyv::from_bytes::<Event>(&record.payload)
-                    .map_err(|e| ZamError::Serialization(format!("{}", e))),
-            )
-        });
+        let iter = scanner
+            .scan()
+            .filter_map(|res| -> Option<ZamResult<Event>> {
+                let record = match res {
+                    Ok(r) => r,
+                    Err(e) => return Some(Err(e)),
+                };
+                if record.payload.is_empty() {
+                    return None;
+                }
+                Some(
+                    rkyv::from_bytes::<Event>(&record.payload)
+                        .map_err(|e| ZamError::Serialization(format!("{}", e))),
+                )
+            });
         Ok(Box::new(iter))
     }
 

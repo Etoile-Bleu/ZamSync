@@ -86,7 +86,10 @@ fn test_compact_drops_confirmed_events() -> ZamResult<()> {
 
     // Reopen and verify events are visible (replicated B events + 1 new A event)
     let final_engine = open_engine(&dir_a, node_a)?;
-    assert!(final_engine.state().0 >= 1, "at least the post-compact event must be visible");
+    assert!(
+        final_engine.state().0 >= 1,
+        "at least the post-compact event must be visible"
+    );
 
     Ok(())
 }
@@ -128,7 +131,10 @@ fn test_compact_then_sync_new_peer() -> ZamResult<()> {
     run_direct_sync(&mut engine_a, &mut engine_c)?;
 
     // C must have the post-compact event
-    assert!(engine_c.state().0 >= 1, "C must receive at least the post-compact event");
+    assert!(
+        engine_c.state().0 >= 1,
+        "C must receive at least the post-compact event"
+    );
 
     Ok(())
 }

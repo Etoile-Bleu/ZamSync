@@ -6,10 +6,8 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let dir = data_dir(args, 2)?;
     let wal_path = dir.join("events.wal");
 
-    let old_key_path = flag_value(args, "--old-key")
-        .ok_or("--old-key <path> is required")?;
-    let new_key_path = flag_value(args, "--new-key")
-        .ok_or("--new-key <path> is required")?;
+    let old_key_path = flag_value(args, "--old-key").ok_or("--old-key <path> is required")?;
+    let new_key_path = flag_value(args, "--new-key").ok_or("--new-key <path> is required")?;
 
     if !wal_path.exists() {
         return Err(format!("WAL not found: {}", wal_path.display()).into());

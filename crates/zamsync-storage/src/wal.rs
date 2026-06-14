@@ -6,7 +6,9 @@ use std::io::{self, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::sync::Arc;
 use tracing::warn;
-use zamsync_core::{SequenceNumber, ZamError, ZamResult, WAL_MAGIC, WAL_VERSION, WAL_VERSION_ENCRYPTED};
+use zamsync_core::{
+    SequenceNumber, ZamError, ZamResult, WAL_MAGIC, WAL_VERSION, WAL_VERSION_ENCRYPTED,
+};
 
 /// WAL Header Size: 4 (Magic) + 1 (Ver) + 4 (CRC) + 8 (Seq) + 4 (Len) = 21 bytes.
 pub const WAL_HEADER_SIZE: usize = 21;
@@ -103,14 +105,14 @@ impl WalScanner {
         Self::open_inner(path, None)
     }
 
-    pub fn open_encrypted(
-        path: impl AsRef<Path>,
-        key: Arc<EncryptionKey>,
-    ) -> ZamResult<Self> {
+    pub fn open_encrypted(path: impl AsRef<Path>, key: Arc<EncryptionKey>) -> ZamResult<Self> {
         Self::open_inner(path, Some(key))
     }
 
-    fn open_inner(path: impl AsRef<Path>, encryption: Option<Arc<EncryptionKey>>) -> ZamResult<Self> {
+    fn open_inner(
+        path: impl AsRef<Path>,
+        encryption: Option<Arc<EncryptionKey>>,
+    ) -> ZamResult<Self> {
         let file = File::open(path)?;
         Ok(Self { file, encryption })
     }
@@ -194,7 +196,8 @@ impl Iterator for WalIterator {
         }
         if magic != WAL_MAGIC {
             return Some(Err(ZamError::Corruption(format!(
-                "Invalid magic: {:?}", magic
+                "Invalid magic: {:?}",
+                magic
             ))));
         }
 
@@ -204,7 +207,8 @@ impl Iterator for WalIterator {
         };
         if version != WAL_VERSION && version != WAL_VERSION_ENCRYPTED {
             return Some(Err(ZamError::Corruption(format!(
-                "Unsupported WAL version: {}", version
+                "Unsupported WAL version: {}",
+                version
             ))));
         }
 

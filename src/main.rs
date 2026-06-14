@@ -13,17 +13,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args: Vec<String> = env::args().collect();
     match args.get(1).map(String::as_str) {
-        Some("info")    => cmd::info(&args),
-        Some("submit")  => cmd::submit(&args),
-        Some("sync")    => cmd::sync(&args),
-        Some("serve")   => cmd::serve(&args),
+        Some("info") => cmd::info(&args),
+        Some("submit") => cmd::submit(&args),
+        Some("sync") => cmd::sync(&args),
+        Some("serve") => cmd::serve(&args),
         Some("compact") => cmd::compact(&args),
-        Some("keygen")  => cmd::keygen(&args),
-        Some("sign")    => cmd::sign(&args),
-        Some("rekey")   => cmd::rekey(&args),
-        Some("bench")   => cmd::bench(&args),
-        Some("daemon")  => cmd::daemon(&args),
-        Some("audit")   => cmd::audit(&args),
+        Some("keygen") => cmd::keygen(&args),
+        Some("sign") => cmd::sign(&args),
+        Some("rekey") => cmd::rekey(&args),
+        Some("bench") => cmd::bench(&args),
+        Some("daemon") => cmd::daemon(&args),
+        Some("audit") => cmd::audit(&args),
         _ => {
             cmd::usage();
             std::process::exit(1);

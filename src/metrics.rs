@@ -2,8 +2,7 @@ use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 
 pub fn start_metrics_server(addr: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let handle = metrics_exporter_prometheus::PrometheusBuilder::new()
-        .install_recorder()?;
+    let handle = metrics_exporter_prometheus::PrometheusBuilder::new().install_recorder()?;
 
     let addr: SocketAddr = addr.parse()?;
     let listener = TcpListener::bind(addr)?;
