@@ -206,6 +206,11 @@ pub fn sign_node_cert(ca_cert_pem: &str, ca_key_pem: &str) -> ZamResult<SignedNo
     })
 }
 
+/// Install the ring crypto provider for rustls. Safe to call multiple times.
+pub fn install_crypto_provider() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,9 +311,4 @@ mod tests {
             .client_config()
             .expect("client config builds -- rejection happens at handshake");
     }
-}
-
-/// Install the ring crypto provider for rustls. Safe to call multiple times.
-pub fn install_crypto_provider() {
-    let _ = rustls::crypto::ring::default_provider().install_default();
 }
