@@ -96,6 +96,21 @@ where
         }
         self.transport.send(peer_id, &SyncMessage::SyncComplete)?;
 
+        // Wait for the responder to process everything and close the connection gracefully.
+        // This prevents the initiator from exiting and resetting the socket prematurely.
+        loop {
+            match self.transport.receive() {
+                Ok(None) => {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Ok(Some(_)) => continue, // Ignore any unexpected messages
+                Err(zamsync_core::ZamError::Io(ref e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    break; // Graceful close from responder
+                }
+                Err(e) => return Err(e), // Connection cut or other error
+            }
+        }
+
         // Emit metrics
         counter!("zamsync_sync_events_sent_total", "peer" => peer_label.clone())
             .increment(stats.events_sent as u64);

@@ -12,7 +12,7 @@
 #   docker buildx use arm-builder
 
 # ── Stage 1: build ───────────────────────────────────────────────────────────
-FROM --platform=$TARGETPLATFORM rust:1-slim AS builder
+FROM --platform=$TARGETPLATFORM rust:1-slim-bookworm AS builder
 
 WORKDIR /src
 
@@ -43,7 +43,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 COPY . .
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/src/target \
+    --mount=type=cache,target=/src/target-v2 \
     cargo build --release && \
     cp target/release/zamsync /usr/local/bin/zamsync
 

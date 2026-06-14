@@ -309,16 +309,6 @@ mod tests {
         }).collect()
     }
 
-    fn make_dirs(base: &std::path::Path) -> ZamResult<(std::path::PathBuf, std::path::PathBuf, std::path::PathBuf)> {
-        let hub = base.join("hub");
-        let a = base.join("clinic_a");
-        let b = base.join("clinic_b");
-        std::fs::create_dir_all(&hub)?;
-        std::fs::create_dir_all(&a)?;
-        std::fs::create_dir_all(&b)?;
-        Ok((hub, a, b))
-    }
-
     // Populates a hub with events from two clinics (submitted from separate dirs),
     // then returns the hub + two EMPTY-WAL nodes with the same NodeIds (fresh restore scenario).
     fn setup_hub_two_clinics(

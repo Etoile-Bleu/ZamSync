@@ -1,6 +1,6 @@
-use crate::util::{data_dir, flag_value, load_encryption_key, node_id_from_dir, EventCounter};
+use crate::util::{data_dir, flag_value, load_encryption_key, node_id_from_dir, open_engine};
 use sha2::{Digest, Sha256};
-use zamsync_storage::ZamEngine;
+use zamsync_storage::PayloadSchema;
 
 pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let dir = data_dir(args, 2)?;
@@ -10,11 +10,7 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let only_node: Option<u32> = flag_value(args, "--node").and_then(|v| v.parse().ok());
 
     let node_id = node_id_from_dir(&dir);
-
-    let engine = match enc_key {
-        Some(key) => ZamEngine::open_wal_encrypted(&dir, node_id, EventCounter::default(), key)?,
-        None => ZamEngine::open_wal(&dir, node_id, EventCounter::default())?,
-    };
+    let engine = open_engine(&dir, node_id, enc_key, PayloadSchema::None)?;
 
     if format == "text" {
         println!(
