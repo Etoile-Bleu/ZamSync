@@ -43,8 +43,8 @@ mkdir -p "$RESULTS" "$WORK"
 
 # ---- 1. Wait for hub and toxiproxy ----------------------------------------
 step "Waiting for hub node ID"
-until [ -f /data/hub/.node_id ]; do sleep 0.3; done
-HUB_ID=$(cat /data/hub/.node_id)
+until [ -f /var/lib/zamsync/.node_id ]; do sleep 0.3; done
+HUB_ID=$(cat /var/lib/zamsync/.node_id)
 ok "Hub node ID: $HUB_ID"
 
 step "Waiting for Toxiproxy"
@@ -143,8 +143,8 @@ done
 
 # ---- 5. Hub metrics --------------------------------------------------------
 step "Collecting hub metrics"
-HUB_EVENTS=$(zamsync info /data/hub 2>/dev/null | awk '/^events/{print $3}' || echo 0)
-HUB_WAL=$(stat -c%s /data/hub/events.wal 2>/dev/null || echo 0)
+HUB_EVENTS=$(zamsync info /var/lib/zamsync 2>/dev/null | awk '/^events/{print $3}' || echo 0)
+HUB_WAL=$(stat -c%s /var/lib/zamsync/events.wal 2>/dev/null || echo 0)
 TOTAL_EXPECTED=$(( CLINIC_COUNT * EVENTS ))
 
 printf '{"node":"hub","role":"hub","events":%s,"wal_size_bytes":%s,"sync_duration_s":0,"bytes_sent":0,"memory_rss_kb":4096}\n' \

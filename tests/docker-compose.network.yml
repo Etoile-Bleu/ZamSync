@@ -22,9 +22,9 @@ services:
       context: ..
       dockerfile: Dockerfile
     container_name: zamsync_net_hub
-    command: ["serve", "/data/hub", "0.0.0.0:9000"]
+    command: ["serve", "/var/lib/zamsync", "0.0.0.0:9000"]
     volumes:
-      - hub-data:/data/hub
+      - hub-data:/var/lib/zamsync
     networks: [net-test]
 
   orchestrator:
@@ -34,7 +34,7 @@ services:
     container_name: zamsync_net_orchestrator
     entrypoint: ["/tests/network_scenario.sh"]
     volumes:
-      - hub-data:/data/hub:ro
+      - hub-data:/var/lib/zamsync:ro
       - ./results:/results
     environment:
       TOXIPROXY_ADDR: "toxiproxy:8474"
