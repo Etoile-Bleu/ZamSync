@@ -1,4 +1,5 @@
 mod cmd;
+mod http;
 mod metrics;
 mod util;
 

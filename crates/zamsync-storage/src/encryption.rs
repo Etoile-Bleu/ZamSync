@@ -57,6 +57,11 @@ impl EncryptionKey {
         Ok(Self::from_bytes(raw))
     }
 
+    /// Return the raw 32-byte key material.
+    pub fn raw_bytes(&self) -> [u8; KEY_LEN] {
+        self.raw
+    }
+
     /// Write the raw 32-byte key to a file (permissions should be 0600).
     pub fn to_file(&self, path: impl AsRef<Path>) -> ZamResult<()> {
         std::fs::write(path, self.raw).map_err(Into::into)

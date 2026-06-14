@@ -1,3 +1,4 @@
+use crate::http::HttpConfig;
 use crate::metrics::start_metrics_server;
 use crate::util::{
     data_dir, flag_value, load_encryption_key, load_policy, load_schema, load_tls_config,
@@ -23,6 +24,16 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(metrics_addr) = flag_value(args, "--metrics") {
         start_metrics_server(metrics_addr)?;
+    }
+
+    if let Some(http_addr) = flag_value(args, "--http") {
+        crate::http::spawn(HttpConfig {
+            bind_addr: http_addr.to_string(),
+            data_dir: dir.clone(),
+            enc_key: enc_key.clone(),
+            node_id: node_id_from_dir(&dir),
+            schema: schema.clone(),
+        });
     }
 
     let node_id = node_id_from_dir(&dir);
