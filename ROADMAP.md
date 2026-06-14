@@ -114,7 +114,10 @@
 
 ### Intégration CI/CD
 
-- [ ] Image Docker officielle publiée sur GHCR avec tags `latest`, `arm64`, `armv7`
+- [x] Release automatisée : `workflow_dispatch` avec saisie de version → bump `Cargo.toml` + commit + tag → `build-release.yml` déclenché
+- [x] Binaires multi-plateformes : x86_64-linux, aarch64-linux, armv7-linux, x86_64-windows -- compilés nativement ou via `cross`
+- [x] Image Docker multi-arch publiée sur GHCR : `latest`, `1.x`, `1.x.y` -- sans QEMU pour la compilation (binaires pré-construits via `Dockerfile.release`)
+- [x] GitHub Release avec checksums SHA-256 et notes de version automatiques
 - [ ] Helm chart pour déploiement Kubernetes (hub en Deployment, nœuds en DaemonSet)
 - [ ] GitHub Actions réutilisable : `uses: zamsync/actions/deploy-hub@v1`
 

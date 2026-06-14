@@ -1,0 +1,206 @@
+name: Build Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── Compile binaries ─────────────────────────────────────────────────────────
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: false
+            artifact: zamsync-linux-x86_64
+            binary: zamsync
+
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: true
+            artifact: zamsync-linux-aarch64
+            binary: zamsync
+
+          - target: armv7-unknown-linux-gnueabihf
+            os: ubuntu-latest
+            use_cross: true
+            artifact: zamsync-linux-armv7
+            binary: zamsync
+
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            use_cross: false
+            artifact: zamsync-windows-x86_64
+            binary: zamsync.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.use_cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Build (native)
+        if: "!matrix.use_cross"
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Build (cross)
+        if: matrix.use_cross
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Stage artifact
+        shell: bash
+        run: |
+          mkdir -p dist
+          src="target/${{ matrix.target }}/release/${{ matrix.binary }}"
+          dst="dist/${{ matrix.artifact }}"
+          cp "$src" "$dst"
+          # Windows binary keeps .exe suffix
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            mv "$dst" "${dst}.exe"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/
+          if-no-files-found: error
+
+  # ── Docker multi-arch image on GHCR ─────────────────────────────────────────
+  docker:
+    name: Docker (ghcr.io)
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist/
+
+      - name: Prepare build context
+        run: |
+          mkdir -p docker-ctx
+          cp dist/zamsync-linux-x86_64/zamsync-linux-x86_64   docker-ctx/zamsync-linux-amd64
+          cp dist/zamsync-linux-aarch64/zamsync-linux-aarch64 docker-ctx/zamsync-linux-arm64
+          cp dist/zamsync-linux-armv7/zamsync-linux-armv7     docker-ctx/zamsync-linux-armv7
+          chmod +x docker-ctx/*
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: docker-ctx
+          file: Dockerfile.release
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  # ── GitHub Release with checksums ────────────────────────────────────────────
+  github-release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist/
+
+      - name: Collect binaries and generate checksums
+        run: |
+          mkdir -p release
+          cp dist/zamsync-linux-x86_64/zamsync-linux-x86_64     release/
+          cp dist/zamsync-linux-aarch64/zamsync-linux-aarch64   release/
+          cp dist/zamsync-linux-armv7/zamsync-linux-armv7       release/
+          cp dist/zamsync-windows-x86_64/zamsync-windows-x86_64.exe release/
+          cd release
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: "ZamSync ${{ github.ref_name }}"
+          body: |
+            ## ZamSync ${{ github.ref_name }}
+
+            Offline-first synchronization engine for intermittent-connectivity deployments.
+
+            ### Install
+
+            ```bash
+            # Linux x86_64
+            curl -fsSL -o zamsync https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/zamsync-linux-x86_64
+            chmod +x zamsync && sudo mv zamsync /usr/local/bin/
+
+            # Linux ARM64 (Raspberry Pi 4, AWS Graviton)
+            curl -fsSL -o zamsync https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/zamsync-linux-aarch64
+            chmod +x zamsync && sudo mv zamsync /usr/local/bin/
+
+            # Linux ARMv7 (Raspberry Pi 2 / 3)
+            curl -fsSL -o zamsync https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/zamsync-linux-armv7
+            chmod +x zamsync && sudo mv zamsync /usr/local/bin/
+
+            # Windows (PowerShell)
+            Invoke-WebRequest -Uri "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/zamsync-windows-x86_64.exe" -OutFile zamsync.exe
+            ```
+
+            ### Docker
+
+            ```bash
+            docker pull ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            # or latest
+            docker pull ghcr.io/${{ github.repository }}:latest
+            ```
+
+            ### Verify checksums
+
+            ```bash
+            sha256sum -c SHA256SUMS.txt
+            ```
+          files: |
+            release/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true

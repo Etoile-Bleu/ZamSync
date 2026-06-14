@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release -- e.g. 1.0.0 (no v prefix)'
+        required: true
+        type: string
+
+jobs:
+  prepare:
+    name: Bump version and tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Use GITHUB_TOKEN with write access.
+          # If branch protection requires PR reviews, add an exception for
+          # github-actions[bot] in Settings -> Branches -> bypass list.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate version format
+        run: |
+          if ! echo "${{ inputs.version }}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Bad version '${{ inputs.version }}' -- must be MAJOR.MINOR.PATCH"
+            exit 1
+          fi
+
+      - name: Bump version in Cargo.toml
+        run: |
+          sed -i -E 's/^version = "[0-9]+\.[0-9]+\.[0-9]+"$/version = "${{ inputs.version }}"/' Cargo.toml
+          # Verify the replacement landed
+          grep -E '^version = "${{ inputs.version }}"' Cargo.toml || {
+            echo "::error::Version replacement failed"
+            exit 1
+          }
+
+      - name: Commit and push
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml
+          git commit -m "chore: release v${{ inputs.version }}"
+          git push
+
+      - name: Create and push tag
+        run: |
+          git tag "v${{ inputs.version }}"
+          git push origin "v${{ inputs.version }}"
+          echo "Tagged v${{ inputs.version }} -- build-release.yml will now run"

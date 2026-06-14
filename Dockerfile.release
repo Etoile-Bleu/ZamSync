@@ -1,0 +1,50 @@
+# syntax=docker/dockerfile:1
+#
+# Release image: copies a pre-built binary instead of compiling from source.
+# Produced by .github/workflows/build-release.yml.
+#
+# Build context (docker-ctx/) must contain:
+#   zamsync-linux-amd64   -- linux/amd64  binary (built natively)
+#   zamsync-linux-arm64   -- linux/arm64  binary (built via cross)
+#   zamsync-linux-armv7   -- linux/arm/v7 binary (built via cross)
+#
+# The selector stage runs on the BUILD host (no QEMU needed for selection).
+# Only the final apt-get install step uses QEMU -- it takes seconds, not minutes.
+
+# ── Stage 1: select the right binary (runs on build host, no QEMU) ───────────
+FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS selector
+
+ARG TARGETPLATFORM
+
+COPY zamsync-linux-amd64 /tmp/bins/zamsync-linux-amd64
+COPY zamsync-linux-arm64 /tmp/bins/zamsync-linux-arm64
+COPY zamsync-linux-armv7 /tmp/bins/zamsync-linux-armv7
+
+RUN case "$TARGETPLATFORM" in \
+      "linux/amd64")  cp /tmp/bins/zamsync-linux-amd64 /usr/local/bin/zamsync ;; \
+      "linux/arm64")  cp /tmp/bins/zamsync-linux-arm64  /usr/local/bin/zamsync ;; \
+      "linux/arm/v7") cp /tmp/bins/zamsync-linux-armv7  /usr/local/bin/zamsync ;; \
+      *) echo "Unsupported platform: $TARGETPLATFORM" && exit 1 ;; \
+    esac && \
+    chmod +x /usr/local/bin/zamsync
+
+# ── Stage 2: minimal runtime image ───────────────────────────────────────────
+FROM --platform=$TARGETPLATFORM debian:bookworm-slim
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && \
+    groupadd -r -g 1000 zamsync && \
+    useradd  -r -u 1000 -g zamsync -s /bin/false -d /var/lib/zamsync zamsync && \
+    mkdir -p /var/lib/zamsync && \
+    chown zamsync:zamsync /var/lib/zamsync
+
+COPY --from=selector /usr/local/bin/zamsync /usr/local/bin/zamsync
+
+USER zamsync
+
+VOLUME /var/lib/zamsync
+EXPOSE 7000
+
+ENTRYPOINT ["/usr/local/bin/zamsync"]
+CMD ["serve", "/var/lib/zamsync", "0.0.0.0:7000"]
