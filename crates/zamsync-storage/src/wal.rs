@@ -156,6 +156,12 @@ impl WalScanner {
                 }
                 None => break,
                 Some(Err(e)) => {
+                    // Config errors (e.g. "WAL is encrypted but no key was provided")
+                    // are not partial-write corruption -- propagate them so the caller
+                    // fails loudly instead of silently truncating valid encrypted data.
+                    if matches!(e, ZamError::Config(_)) {
+                        return Err(e);
+                    }
                     warn!(pos = it.offset, error = %e, "WAL recovery stopped");
                     break;
                 }
