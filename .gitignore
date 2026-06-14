@@ -2,4 +2,17 @@
 .claude/
 /bench_data/
 /tests/*.log
-/demo.gif
+
+# VHS runtime artifacts (created in project root by docker run -v "${PWD}:/vhs")
+/hub/
+/clinic/
+/clinic-a/
+/clinic-b/
+/rogue/
+/secure/
+/data/
+/e*.txt
+/payload.txt
+
+# Generated GIFs -- commit manually when ready
+/docs/demos/*.gif
