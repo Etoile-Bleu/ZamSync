@@ -22,7 +22,8 @@ env:
   # Resolved once here, used everywhere.
   # - tag push or dispatch --ref "vX.Y.Z" : github.ref_name = vX.Y.Z, inputs.version = ''
   # - manual dispatch from main with version input : github.ref_name = main, inputs.version = vX.Y.Z
-  RELEASE_TAG: ${{ inputs.version != '' && inputs.version || github.ref_name }}
+  # Always normalise to "vX.Y.Z" -- works whether user typed "1.0.0" or "v1.0.0"
+  RELEASE_TAG: ${{ inputs.version != '' && (startsWith(inputs.version, 'v') && inputs.version || format('v{0}', inputs.version)) || github.ref_name }}
 
 jobs:
   # ── Compile binaries ─────────────────────────────────────────────────────────
