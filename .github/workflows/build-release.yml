@@ -134,7 +134,8 @@ jobs:
           tag="${{ env.RELEASE_TAG }}"
           ver="${tag#v}"                                  # strip leading v
           major_minor="$(echo "$ver" | cut -d. -f1-2)"  # e.g. 1.0
-          repo="ghcr.io/${{ github.repository }}"
+          # GHCR requires lowercase -- github.repository preserves original casing
+          repo="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
           echo "value=${repo}:${ver},${repo}:${major_minor},${repo}:latest" >> $GITHUB_OUTPUT
 
       - uses: docker/setup-qemu-action@v3
