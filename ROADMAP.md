@@ -85,7 +85,44 @@
 - [x] WAL key rotation: `zamsync rekey <data-dir> --old-key <path> --new-key <path>` -- re-encrypts all WAL records with a new key atomically (tmp file + rename)
 - [x] Clippy `FromStr` trait: `PayloadSchema` and `AccessPolicy` now implement `std::str::FromStr` instead of plain `from_str` methods
 
-## Phase 10: Compatibilité Bases de Données et Écosystème
+## Phase 10: Test Coverage
+
+### What is well covered today
+
+- [x] WAL durability: roundtrip, CRC corruption, crash recovery, automatic truncation
+- [x] Convergence: bidirectional sync, idempotence, 2-node split-brain, deterministic merge (LogSorter)
+- [x] Compaction: events dropped after peer confirmation, sync of a new peer post-compaction
+- [x] Access control: `All` vs `OwnOnly`, isolation verified for clinic A / clinic B
+- [x] TCP transport: end-to-end sync, batching >256 events, idempotence
+- [x] TLS/mTLS: valid CA chain, rogue node rejection (different CA)
+- [x] WAL encryption: encrypt/decrypt roundtrip, clear error without key (fix: no silent truncation)
+- [x] E2E network tests (Toxiproxy): 2G 600ms + jitter + mid-sync cut, 5,000 events with zero loss
+
+### Gaps Tier 1 -- Consistency Invariants (critical)
+
+- [x] **HLC monotonicity**: multiple successive `submit()` calls → HLC strictly increasing; clock rollback absorbed by logical counter
+- [x] **VersionVector operations**: `update()` (never decreases), `find_gaps()` (inclusive start seq, empty local, partial overlap, at-scale with 200 peers) all unit-tested
+- [x] **Proven idempotence**: applying the same event batch 3× → exactly one copy in the WAL, VV at correct seq
+- [x] **3+ node convergence**: 3 nodes in full split-brain, full mesh sync → identical 6-event sorted streams and matching VVs on all three
+
+### Gaps Tier 2 -- Advanced Durability (important)
+
+- [x] **WAL key rotation**: `rekey` full roundtrip (5 records), old key rejected after rekey, non-contiguous seqs preserved
+- [ ] **Concurrent writes**: multiple threads calling `submit()` simultaneously → no lost events, consistent sequences
+- [ ] **Compaction during active sync**: compaction runs while a peer is syncing → no corruption or loss
+- [x] **Out-of-order messages**: `EventBatch` received before `Handshake` → events applied cleanly, no panic, consistent state
+- [x] **WAL corruption mid-record**: magic bytes and version byte of a mid-file record corrupted → recovery stops at the correct boundary
+
+### Gaps Tier 3 -- Edge Cases (nice to have)
+
+- [x] **Oversized frames**: payload at MAX_FRAME_SIZE (64 MB) rejected by `write_frame`; oversized length field in `FrameBuffer` rejected before allocation
+- [ ] **Expired TLS certificate**: cert with `not_after` date past → explicit rejection at handshake
+- [ ] **Disk full**: `submit()` when ENOSPC → error propagated, WAL not corrupted
+- [x] **Clock jump**: system clock rolls back sharply → HLC logical counter absorbs the jump, monotonicity preserved
+- [x] **VersionVector with 200 peers**: `find_gaps()` correct for all entries at scale
+- [ ] **CLI tests**: each command executed as a real process against a real node (`cargo test --features integration`)
+
+## Phase 11: Compatibilité Bases de Données et Écosystème
 
 ### Projection Service (remplacement sécurisé du script shell)
 
@@ -121,6 +158,13 @@
 - [x] Démos terminales animées (GIF) : quickstart, sécurité mTLS, chiffrement WAL, contrôle d'accès (`docs/demos/`)
 - [ ] Helm chart pour déploiement Kubernetes (hub en Deployment, nœuds en DaemonSet)
 - [ ] GitHub Actions réutilisable : `uses: zamsync/actions/deploy-hub@v1`
+
+## Phase 12: REST API et Intégrations
+
+- [ ] **REST API embarquée** (`zamsync serve --http 0.0.0.0:8080`) -- `POST /submit`, `GET /events?since=<seq>`, `GET /health`, `GET /metrics`; intégration depuis n'importe quel langage sans SDK
+- [ ] **Event Stream SSE** (`GET /events/stream`) -- push temps-réel vers frontends React/Vue via `EventSource`
+- [ ] **Python SDK** (`pip install zamsync`) -- `ZamSyncClient.submit()`, `ZamSyncClient.stream()`
+- [ ] **Node.js / TypeScript SDK** (`npm install zamsync-client`)
 
 ## First-Deployment Target
 
