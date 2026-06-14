@@ -13,9 +13,21 @@ Hide
 # Setup (not recorded)
 # ─────────────────────────────
 
-Type "cp /vhs/zamsync-linux-x86_64 /usr/local/bin/zamsync && chmod +x /usr/local/bin/zamsync"
+Type "if [ -f /vhs/zamsync-linux-x86_64 ]; then B=/vhs/zamsync-linux-x86_64; elif [ -f ./zamsync-linux-x86_64 ]; then B=./zamsync-linux-x86_64; else B=../../zamsync-linux-x86_64; fi"
+Enter
+Type "if [ -w /usr/local/bin ]; then cp $B /usr/local/bin/zamsync && chmod +x /usr/local/bin/zamsync; else mkdir -p ~/.local/bin && cp $B ~/.local/bin/zamsync && chmod +x ~/.local/bin/zamsync && export PATH=~/.local/bin:$PATH; fi"
+Enter
+Type "mkdir -p /tmp/encryption && cd /tmp/encryption"
 Enter
 Sleep 500ms
+Type "export PS1='$(tput setaf 5)Etoile-Bleu $(tput setaf 6)\w $(tput setaf 5)❯$(tput sgr0) '"
+Enter
+Type "info() { echo; tput setaf 6; echo '[*]' $*; tput sgr0; }"
+Enter
+
+Type "clear"
+Enter
+Sleep 100ms
 
 Show
 
@@ -23,7 +35,7 @@ Show
 # 1. Generate node with encryption key
 # ─────────────────────────────
 
-Type "# WAL encryption at rest -- ChaCha20-Poly1305, 96-bit random nonce per record"
+Type "info 'WAL encryption at rest -- ChaCha20-Poly1305, 96-bit random nonce per record'"
 Enter
 Sleep 600ms
 
@@ -47,7 +59,7 @@ Sleep 800ms
 # 3. Raw WAL on disk -- unreadable
 # ─────────────────────────────
 
-Type "# Raw WAL on disk -- encrypted bytes, unreadable without the key"
+Type "info 'Raw WAL on disk -- encrypted bytes, unreadable without the key'"
 Enter
 Sleep 600ms
 
@@ -59,7 +71,7 @@ Sleep 1000ms
 # 4. Audit without key -- refused
 # ─────────────────────────────
 
-Type "# Audit without key -- fails"
+Type "info 'Audit without key -- fails'"
 Enter
 Sleep 600ms
 
@@ -71,7 +83,7 @@ Sleep 1000ms
 # 5. Audit with key -- decrypted
 # ─────────────────────────────
 
-Type "# Audit with key -- decrypted and readable"
+Type "info 'Audit with key -- decrypted and readable'"
 Enter
 Sleep 600ms
 

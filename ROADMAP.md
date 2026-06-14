@@ -118,6 +118,7 @@
 - [x] Binaires multi-plateformes : x86_64-linux, aarch64-linux, armv7-linux, x86_64-windows -- compilés nativement ou via `cross`
 - [x] Image Docker multi-arch publiée sur GHCR : `latest`, `1.x`, `1.x.y` -- sans QEMU pour la compilation (binaires pré-construits via `Dockerfile.release`)
 - [x] GitHub Release avec checksums SHA-256 et notes de version automatiques
+- [x] Démos terminales animées (GIF) : quickstart, sécurité mTLS, chiffrement WAL, contrôle d'accès (`docs/demos/`)
 - [ ] Helm chart pour déploiement Kubernetes (hub en Deployment, nœuds en DaemonSet)
 - [ ] GitHub Actions réutilisable : `uses: zamsync/actions/deploy-hub@v1`
 

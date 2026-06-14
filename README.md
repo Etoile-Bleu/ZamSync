@@ -17,8 +17,8 @@
 
 ---
 
-<!-- Regenerate GIFs: docker run --rm -v "${PWD}:/vhs" ghcr.io/charmbracelet/vhs docs/demos/quickstart.tape -->
-<!-- ![ZamSync demo](docs/demos/quickstart.gif) -->
+<!-- Regenerate: docker run --rm -v "${PWD}:/vhs" ghcr.io/charmbracelet/vhs docs/demos/quickstart.tape -->
+![ZamSync demo](docs/demos/quickstart.gif)
 
 ## 30-second Quick Start
 
@@ -322,6 +322,8 @@ zamsync daemon /var/lib/zamsync 192.168.1.10:7000 $(cat /var/lib/hub/.node_id) \
 
 A rogue node that presents a certificate from a different CA is **rejected at the TLS handshake** before any data is exchanged.
 
+![mTLS security demo](docs/demos/security.gif)
+
 ---
 
 ## WAL Encryption
@@ -343,6 +345,8 @@ zamsync rekey ./node --old-key ./node/data.key --new-key ./node/data.key.new
 mv ./node/data.key.new ./node/data.key
 ```
 
+![WAL encryption demo](docs/demos/encryption.gif)
+
 ---
 
 ## Access Control
@@ -357,6 +361,8 @@ When clinic A syncs -> receives A1, A2, A3  (not B1, B2)
 When clinic B syncs -> receives B1, B2       (not A1, A2, A3)
 Hub sees all events.
 ```
+
+![Access control demo](docs/demos/access-control.gif)
 
 ---
 
