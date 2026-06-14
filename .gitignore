@@ -1,2 +1,4 @@
 /target
 .claude/
+/bench_data/
+/tests/*.log

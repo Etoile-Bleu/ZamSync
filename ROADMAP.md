@@ -79,11 +79,11 @@
 
 ## Phase 9: PKI Multi-Nœud
 
-- [ ] `zamsync sign <clinic-dir> --ca <hub-dir>` — signe le node cert d'un nœud client avec la CA du hub; permet à plusieurs nœuds de partager la même CA root sans régénérer de CA par nœud
-- [ ] `zamsync keygen` génère uniquement CA + node cert pour le hub; les cliniques reçoivent un cert signé par `sign`, pas leur propre CA
-- [ ] E2E test mTLS multi-cliniques : Hospital CA signe Clinic A + Clinic B; rogue avec sa propre CA est rejeté
-- [ ] Rotation de clé WAL : `zamsync rekey <data-dir> --old-key <path> --new-key <path>` — re-chiffre tous les records WAL avec une nouvelle clé sans interruption de service
-- [ ] Documentation déploiement PKI : génération CA hub, distribution des certs aux nœuds terrain, révocation
+- [x] `zamsync sign <clinic-dir> --ca <hub-dir>` -- signs a clinic node cert with the hub CA; multiple clinic nodes share the same CA root without each generating their own CA
+- [x] `zamsync keygen` generates the hub CA + hub node cert; clinics receive a cert signed by `sign`, not their own CA
+- [x] mTLS multi-clinic tests: hub CA signs Clinic A and Clinic B; rogue node with its own CA is rejected at TLS handshake (2 integration tests in `zamsync-network`)
+- [x] WAL key rotation: `zamsync rekey <data-dir> --old-key <path> --new-key <path>` -- re-encrypts all WAL records with a new key atomically (tmp file + rename)
+- [x] Clippy `FromStr` trait: `PayloadSchema` and `AccessPolicy` now implement `std::str::FromStr` instead of plain `from_str` methods
 
 ## Phase 10: Compatibilité Bases de Données et Écosystème
 

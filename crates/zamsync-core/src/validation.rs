@@ -15,9 +15,11 @@ pub enum PayloadSchema {
     JsonRequired(Vec<String>),
 }
 
-impl PayloadSchema {
+impl std::str::FromStr for PayloadSchema {
+    type Err = String;
+
     /// Parse a schema from a CLI flag value (`"none"`, `"json"`, `"json+key1,key2"`).
-    pub fn from_str(s: &str) -> Result<Self, String> {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s == "none" {
             return Ok(Self::None);
         }
@@ -32,6 +34,9 @@ impl PayloadSchema {
             "unknown schema '{s}': use 'none', 'json', or 'json+field1,field2'"
         ))
     }
+}
+
+impl PayloadSchema {
 
     pub fn is_none(&self) -> bool {
         matches!(self, Self::None)
@@ -101,6 +106,7 @@ mod tests {
 
     #[test]
     fn test_from_str_round_trip() {
+        use std::str::FromStr;
         assert!(matches!(PayloadSchema::from_str("none").unwrap(), PayloadSchema::None));
         assert!(matches!(PayloadSchema::from_str("json").unwrap(), PayloadSchema::Json));
         let PayloadSchema::JsonRequired(fields) = PayloadSchema::from_str("json+type,patient_id").unwrap() else { panic!() };

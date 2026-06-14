@@ -1,0 +1,13 @@
+services:
+  security-tester:
+    build:
+      context: ..
+      dockerfile: tests/Dockerfile.test
+    container_name: zamsync_security_tester
+    entrypoint: ["/tests/security_access_test.sh"]
+    volumes:
+      - security-data:/data
+    network_mode: host
+
+volumes:
+  security-data:

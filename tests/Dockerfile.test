@@ -1,0 +1,36 @@
+FROM rust:1-slim-bookworm AS builder
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY crates/zamsync-core/Cargo.toml     crates/zamsync-core/Cargo.toml
+COPY crates/zamsync-storage/Cargo.toml  crates/zamsync-storage/Cargo.toml
+COPY crates/zamsync-network/Cargo.toml  crates/zamsync-network/Cargo.toml
+COPY crates/zamsync-testing/Cargo.toml  crates/zamsync-testing/Cargo.toml
+
+RUN mkdir -p src \
+        crates/zamsync-core/src \
+        crates/zamsync-storage/src \
+        crates/zamsync-network/src \
+        crates/zamsync-testing/src && \
+    echo 'fn main() {}' > src/main.rs && \
+    echo '' > crates/zamsync-core/src/lib.rs && \
+    echo '' > crates/zamsync-storage/src/lib.rs && \
+    echo '' > crates/zamsync-network/src/lib.rs && \
+    echo '' > crates/zamsync-testing/src/lib.rs
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    cargo fetch
+
+COPY . .
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/src/target-v2 \
+    cargo build --release && \
+    cp target/release/zamsync /usr/local/bin/zamsync
+
+FROM debian:bookworm-slim
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl jq && \
+    rm -rf /var/lib/apt/lists/*
+COPY --from=builder /usr/local/bin/zamsync /usr/local/bin/zamsync
+COPY tests/real_world_bhutan_test.sh /tests/real_world_bhutan_test.sh
+COPY tests/security_access_test.sh /tests/security_access_test.sh
+RUN chmod +x /tests/real_world_bhutan_test.sh /tests/security_access_test.sh

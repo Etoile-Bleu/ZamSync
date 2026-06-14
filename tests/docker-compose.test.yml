@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    container_name: zamsync_toxiproxy
+    expose:
+      - "8474"
+      - "7000"
+    networks:
+      - test-net
+
+  server:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: zamsync_server
+    command: ["serve", "/var/lib/zamsync", "0.0.0.0:7000"]
+    volumes:
+      - server-data:/var/lib/zamsync
+    networks:
+      - test-net
+    depends_on:
+      - toxiproxy
+
+  tester:
+    build:
+      context: ..
+      dockerfile: tests/Dockerfile.test
+    container_name: zamsync_tester
+    entrypoint: ["/tests/real_world_bhutan_test.sh"]
+    volumes:
+      # client WAL: ephemeral tmpfs — always starts empty each run
+      - type: tmpfs
+        target: /data
+      # server WAL: shared named volume so tester can read .node_id and event counts
+      - server-data:/server-data
+    networks:
+      - test-net
+    depends_on:
+      - toxiproxy
+      - server
+    environment:
+      - TOXIPROXY_ADDR=toxiproxy:8474
+      - SERVER_ADDR=server:7000
+      - PROXY_SYNC_ADDR=toxiproxy:7000
+
+# server-data is a named volume shared between server and tester.
+# The test script purges it at startup (step 0) before the server writes .node_id,
+# which guarantees a clean slate on every run without needing 'docker compose down -v'.
+volumes:
+  server-data:
+
+networks:
+  test-net:
+    driver: bridge

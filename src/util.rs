@@ -79,14 +79,14 @@ pub fn load_encryption_key(args: &[String]) -> Result<Option<EncryptionKey>, Box
 
 pub fn load_schema(args: &[String]) -> Result<PayloadSchema, Box<dyn std::error::Error>> {
     match flag_value(args, "--schema") {
-        Some(s) => PayloadSchema::from_str(s).map_err(|e| e.into()),
+        Some(s) => s.parse::<PayloadSchema>().map_err(|e| e.into()),
         None => Ok(PayloadSchema::None),
     }
 }
 
 pub fn load_policy(args: &[String]) -> Result<AccessPolicy, Box<dyn std::error::Error>> {
     match flag_value(args, "--policy") {
-        Some(s) => AccessPolicy::from_str(s).map_err(|e| e.into()),
+        Some(s) => s.parse::<AccessPolicy>().map_err(|e| e.into()),
         None => Ok(AccessPolicy::All),
     }
 }

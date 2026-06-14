@@ -59,7 +59,7 @@ impl EncryptionKey {
 
     /// Write the raw 32-byte key to a file (permissions should be 0600).
     pub fn to_file(&self, path: impl AsRef<Path>) -> ZamResult<()> {
-        std::fs::write(path, &self.raw).map_err(Into::into)
+        std::fs::write(path, self.raw).map_err(Into::into)
     }
 
     /// Encrypt `plaintext`. Returns `[nonce: 12][ciphertext][tag: 16]`.
