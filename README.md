@@ -17,8 +17,8 @@
 
 ---
 
-<!-- demo.gif: render with `docker run --rm -v "${PWD}:/vhs" ghcr.io/charmbracelet/vhs demo.tape` -->
-<!-- ![ZamSync demo](demo.gif) -->
+<!-- Regenerate GIFs: docker run --rm -v "${PWD}:/vhs" ghcr.io/charmbracelet/vhs docs/demos/quickstart.tape -->
+<!-- ![ZamSync demo](docs/demos/quickstart.gif) -->
 
 ## 30-second Quick Start
 
