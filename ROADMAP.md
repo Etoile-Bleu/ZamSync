@@ -275,6 +275,49 @@ served by the hub that shows sync health at a glance.
 - [ ] **Zero binary size regression**: dashboard HTML is compressed with Zstd at build time and decompressed on first request; target < 60 KB compressed; CI step asserts binary size delta < 100 KB
 - [ ] **Works on constrained browsers**: tested on Firefox ESR (the oldest browser commonly available in low-resource environments); no ES2022+ features; no WebAssembly dependency; renders correctly on 1024×768 screens
 
+## Phase 21: Structured Error Codes and Color CLI Output
+
+ZamSync currently prints raw Rust error messages (`Io(Os { code: 28, kind: StorageFull, message: "No space left on device" })`). A field technician deploying on a Raspberry Pi in a clinic cannot act on that. This phase introduces a complete, documented error code table -- inspired by HTTP status codes and the Rust compiler's `E0xxx` system -- paired with color terminal output so the severity is immediately visible.
+
+### Error code table
+
+Codes follow the pattern `Z[category][index]`, grouped by category:
+
+| Range | Category | Examples |
+|---|---|---|
+| Z1xx | Success / info | Z100 OK, Z101 COMPACTED, Z102 DRY_RUN |
+| Z2xx | Storage | Z200 WAL_CORRUPT, Z201 ENOSPC, Z202 KEY_MISSING, Z203 REKEY_FAILED |
+| Z3xx | Network / transport | Z300 CONNECT_REFUSED, Z301 PEER_TIMEOUT, Z302 FRAME_TOO_LARGE, Z303 PROTOCOL_MISMATCH |
+| Z4xx | Auth / security | Z400 CERT_EXPIRED, Z401 CERT_UNTRUSTED, Z402 CA_MISMATCH, Z403 KEY_INVALID |
+| Z5xx | Sync protocol | Z500 VV_GAP, Z501 DUPLICATE_EVENT, Z502 BAD_HANDSHAKE, Z503 POLICY_DENIED |
+| Z6xx | Configuration | Z600 DIR_NOT_FOUND, Z601 BAD_NODE_ID, Z602 BAD_BIND_ADDR, Z603 SCHEMA_INVALID |
+
+### Implementation
+
+- [ ] **`ZamError` gains a structured code**: `ZamError::code() -> &'static str` returns `"Z201"` etc.; existing variant names are unchanged -- code is additive
+- [ ] **Color output on all CLI commands**: add `colored = "2"` to the CLI crate; errors print `[Z201] ENOSPC  no space left on device` in red + bold code; warnings in yellow; success lines in green; TTY-gated (`isatty` check) so piped output and systemd journal receive plain text
+- [ ] **`NO_COLOR` and `TERM=dumb` respected**: `colored` handles this automatically; behavior verified in a unit test that sets `NO_COLOR=1` and asserts no ANSI bytes in output
+- [ ] **Structured exit codes**: CLI exits with a code matching the Z-category (`0` = success, `2` = storage, `3` = network, `4` = auth, `5` = protocol, `6` = config); enables shell scripting (`if zamsync sync ...; then ...`)
+- [ ] **`zamsync errors [code]`** sub-command: with no argument, prints the full error code table; with a code (`zamsync errors Z400`) prints the full description and remediation steps for that code
+- [ ] **Machine-readable errors**: `--format json` on any command emits `{"code": "Z201", "name": "ENOSPC", "message": "...", "hint": "..."}` instead of plain text; consistent with the existing `--format json` on `zamsync audit`
+- [ ] **Error reference page**: `docs/errors.md` generated from the same source-of-truth table (a `const` array in `zamsync-core`) so docs can never drift from the code; one CI step asserts the generated file is up to date
+
+### Example terminal output (after this phase)
+
+```
+$ zamsync sync ./clinic-data 10.0.1.1:5000 1000 --tls
+
+[Z400] CERT_EXPIRED  peer certificate expired 2024-03-01
+       Hint: re-run `zamsync sign ./clinic-data --ca ./hub-data` on the hub
+             and copy the new cert to the clinic node.
+```
+
+```
+$ zamsync submit ./clinic-data '{"patient_id": 42}'
+
+[Z100] OK  seq=1042  node=00a3f1c2
+```
+
 ## First-Deployment Target
 
 ZamSync is a generic sync engine. The reference scenario is the Bhutan ePIS
