@@ -4,6 +4,8 @@
 /tests/*.log
 /tests/results/
 /report.html
+/devto_post.md
+/discord_message.md
 
 # VHS runtime artifacts (created in project root by docker run -v "${PWD}:/vhs")
 /hub/

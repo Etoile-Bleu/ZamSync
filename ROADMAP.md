@@ -193,6 +193,88 @@ of max. At 30 kbps / 600ms latency, 4 clinics took 14s instead of the expected ~
 - [x] **Correctness test**: 4-client concurrent hub test (`test_concurrent_hub_four_clients`) with a `Barrier` to synchronize all clients, verifies 20 events converge on hub with no deadlock or data loss
 - [x] **Benchmark**: A/B Docker simulation (hub-seq vs hub-con); 4 clinics, Rural 2G/EDGE (600ms / 30 kbps); sequential wall=13s, concurrent wall=3s; **4.3x speedup**; 2000/2000 events converged on both hubs; report in `tests/results/report.html`
 
+## Phase 15: Async I/O (Tokio Migration)
+
+The hub currently spawns one OS thread per accepted connection. This works well
+at low clinic counts, but a thread stack is ~1 MB on Linux/ARMv7 and the blocking
+`accept_split` call holds the calling thread until a peer connects. At 64 concurrent
+clinics the hub consumes ~64 MB in stacks alone -- a real constraint on Pi-class
+hardware with 512 MB total RAM.
+
+- [ ] **Async transport layer**: implement `AsyncTcpTransport` backed by `tokio::net::TcpListener`; `accept_split` becomes `async fn accept_split()` returning `TcpPeerTransport` without blocking the event loop
+- [ ] **Async hub serve loop**: replace `thread::spawn` per peer with `tokio::spawn`; each task is a green thread (~12 KB overhead vs ~1 MB OS thread stack)
+- [ ] **Backpressure with async semaphore**: `tokio::sync::Semaphore` replaces the stdlib counting semaphore; permits are held for the lifetime of the sync task and released on drop
+- [ ] **Async TLS**: swap `rustls` + blocking `TcpStream` for `tokio-rustls` `TlsAcceptor`; handshake is non-blocking and does not stall other peers
+- [ ] **Keep sync core synchronous**: `SyncSession` and `ZamEngine` remain synchronous; called via `tokio::task::spawn_blocking` from async handlers; no viral `async` through the storage layer
+- [ ] **Memory benchmark**: before/after RSS comparison at 64 concurrent peers on `aarch64-linux`; target <= 32 MB RSS at idle with 64 connected clients
+- [ ] **Existing tests pass unchanged**: `test_concurrent_hub_four_clients` and all integration tests must pass against the async hub with no test changes
+
+## Phase 16: LAN Peer Discovery (mDNS)
+
+Currently each clinic needs to know the hub's IP address and port to connect. On
+a hospital LAN or district Wi-Fi this is a manual provisioning step that breaks
+when the hub's IP changes (DHCP reassignment). mDNS eliminates this: the hub
+announces itself and clinics discover it automatically.
+
+- [ ] **Hub advertisement**: `zamsync serve --advertise` publishes a `_zamsync._tcp.local` mDNS service record with the hub's node ID, port, and TLS fingerprint; uses the `mdns-sd` crate (pure Rust, no system daemon)
+- [ ] **Clinic discovery**: `zamsync sync --discover` resolves `_zamsync._tcp.local`, selects the first hub whose TLS fingerprint matches a locally trusted CA, and syncs; falls back to explicit `--peer` address if discovery times out after 3 s
+- [ ] **Fingerprint pinning**: hub TLS fingerprint is stored in `peers.bin` on first successful mTLS handshake; subsequent discoveries that change the fingerprint are rejected with a clear error (TOFU -- trust on first use)
+- [ ] **Multi-hub topologies**: list all discovered hubs with `zamsync peers --discover`; useful in multi-district deployments where a clinic is in range of several district hubs
+- [ ] **No mandatory dependency**: mDNS is an optional Cargo feature (`--features mdns`); the default build remains dependency-minimal for constrained environments where mDNS is irrelevant (direct satellite link)
+
+## Phase 17: Conflict Visibility and Resolution
+
+In an offline-first system two clinics can each update the same patient record
+while disconnected. After sync both versions are in the WAL -- the engine applies
+both deterministically via HLC ordering, but neither version is automatically
+discarded. This phase surfaces those conflicts as first-class data and provides
+a resolution mechanism that preserves the full audit trail.
+
+- [ ] **Conflict detection**: `zamsync conflicts <data-dir>` scans the projected SQLite DB and reports event pairs that share the same `(origin_node, event_type, target_id)` tuple but carry different payloads; groups by logical record ID extracted from a configurable JSON field (`--key patient_id`)
+- [ ] **Conflict report format**: text table (default) and `--format json` for scripted pipelines; includes HLC timestamps, origin nodes, and payload diff (added/removed JSON keys)
+- [ ] **Resolution event**: `zamsync resolve <data-dir> --winner <seq>@<node>` emits a new WAL event of type `ConflictResolution` referencing both conflicting events and the chosen winner; immutable audit trail of the original versions is preserved
+- [ ] **Application hook**: `--on-conflict <cmd>` invokes an external binary with the conflict payload on stdin and expects the winner seq on stdout; enables automated last-write-wins or field-merge strategies without patching ZamSync itself
+- [ ] **Integration test**: two clinics update the same `patient_id` offline, sync to hub, `zamsync conflicts` reports exactly one conflict, resolution event propagates back to both clinics on next sync
+
+## Phase 18: Bandwidth Budgeting
+
+Bhutan's rural clinics connect via VSAT links billed per megabyte. A single sync
+session that transfers 50 MB of backlogged events can exceed a clinic's daily
+quota and block all other network use. Bandwidth budgeting caps transfer per
+session and per day, allowing clinics to sync incrementally across multiple
+scheduled windows.
+
+- [ ] **Per-session cap**: `zamsync sync --max-bytes 2M` stops sending after 2 MB of WAL frames have been transmitted in the current session; resumes from the correct VV offset on the next invocation (no re-transmission, no data loss)
+- [ ] **Daily budget enforcement**: `zamsync serve --daily-budget 20M` tracks bytes transferred per calendar day per peer; once a peer reaches its budget the hub finishes the current batch then closes with `SyncComplete` so the clinic receives partial progress
+- [ ] **Budget accounting persistence**: byte counters are written to `budget.bin` in the data directory; survive hub restarts; reset at local midnight
+- [ ] **Prometheus metrics**: `zamsync_bytes_sent_total`, `zamsync_bytes_received_total`, `zamsync_budget_remaining_bytes` added to the existing metrics endpoint; enables alerting when a clinic is consistently hitting its budget
+- [ ] **Dry-run estimation**: `zamsync sync --max-bytes 0 --dry-run` reports how many bytes a full sync would transfer without sending anything; clinic operator can plan the sync window size accordingly
+
+## Phase 19: Event Retention and Automatic Compaction
+
+Raspberry Pi SD cards are typically 8--32 GB. A clinic that submits 500 patient
+events per day fills 16 GB in roughly 10 years -- manageable, but a hub
+aggregating 50 clinics reaches 50× that. Automatic retention policies compact
+the WAL on a schedule so storage does not grow unboundedly.
+
+- [ ] **Retention policy flag**: `zamsync serve --retain 365d` compacts events older than 365 days from the WAL at startup and once per day at a configurable hour (`--compact-at 02:00`); uses the existing `compact()` path -- no new storage code
+- [ ] **Manual expiry**: `zamsync expire <data-dir> --before 2024-01-01` removes events whose HLC timestamp predates the given date; `--dry-run` lists events that would be removed with byte savings; `--min-keep 1000` always preserves at least N most recent events per node regardless of age
+- [ ] **Tombstone preservation**: the compaction tombstone record (introduced in Phase 5) is retained so peers that reconnect after the retention window receive a clear `WAL_COMPACTED` error rather than a silent gap; they must re-bootstrap from a hub snapshot
+- [ ] **Snapshot export**: `zamsync snapshot <data-dir> --output snapshot.bin` exports the current WAL as a self-contained bootstrap file; a new node can initialize from the snapshot instead of syncing all history; critical when a replacement Pi is deployed after the retention window has passed
+- [ ] **Retention report**: `zamsync info` gains a `retention` section showing oldest event date, projected full-disk date at current submission rate, and next scheduled compaction time
+
+## Phase 20: Embedded Status Dashboard
+
+Hospital administrators and field technicians need to verify that sync is working
+without SSH access or Grafana. This phase adds a single self-contained HTML page
+served by the hub that shows sync health at a glance.
+
+- [ ] **Dashboard endpoint**: `zamsync serve --ui` mounts `GET /ui` returning a single HTML file with all assets inlined (no external requests); the page auto-refreshes every 30 s via `fetch(/health)` and `fetch(/events?since=...)`
+- [ ] **Sync health panels**: event count per node, last-seen timestamp per peer, VV drift (how far behind each peer is), bytes transferred today; all sourced from existing `/health` and Prometheus endpoints -- no new backend logic
+- [ ] **Sparkline charts**: 24-hour event submission rate and sync duration trend rendered via a ~12 KB inline Chart.js build; no npm, no CDN dependency, no build step; chart data stored in the browser's sessionStorage and discarded on page close
+- [ ] **Zero binary size regression**: dashboard HTML is compressed with Zstd at build time and decompressed on first request; target < 60 KB compressed; CI step asserts binary size delta < 100 KB
+- [ ] **Works on constrained browsers**: tested on Firefox ESR (the oldest browser commonly available in low-resource environments); no ES2022+ features; no WebAssembly dependency; renders correctly on 1024×768 screens
+
 ## First-Deployment Target
 
 ZamSync is a generic sync engine. The reference scenario is the Bhutan ePIS
