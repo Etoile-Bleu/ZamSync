@@ -142,13 +142,15 @@ pub fn generate_credentials() -> ZamResult<GeneratedCredentials> {
     let node_params = rcgen::CertificateParams::new(vec!["zamsync.local".to_string()])
         .map_err(|e| ZamError::Config(format!("node params: {e}")))?;
 
+    let ca_key_pem = ca_key.serialize_pem();
+    let ca_issuer = rcgen::Issuer::from_params(&ca_params, ca_key);
     let node_cert = node_params
-        .signed_by(&node_key, &ca_cert, &ca_key)
+        .signed_by(&node_key, &ca_issuer)
         .map_err(|e| ZamError::Config(format!("node cert signing failed: {e}")))?;
 
     Ok(GeneratedCredentials {
         ca_cert_pem: ca_cert.pem(),
-        ca_key_pem: ca_key.serialize_pem(),
+        ca_key_pem,
         node_cert_pem: node_cert.pem(),
         node_key_pem: node_key.serialize_pem(),
     })
@@ -185,18 +187,15 @@ pub fn sign_node_cert(ca_cert_pem: &str, ca_key_pem: &str) -> ZamResult<SignedNo
         .map_err(|e| ZamError::Config(format!("CA params: {e}")))?;
     ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
 
-    let ca_cert = ca_params
-        .self_signed(&ca_key)
-        .map_err(|e| ZamError::Config(format!("reconstruct CA cert: {e}")))?;
-
     let node_key = rcgen::KeyPair::generate()
         .map_err(|e| ZamError::Config(format!("node key generation failed: {e}")))?;
 
     let node_params = rcgen::CertificateParams::new(vec!["zamsync.local".to_string()])
         .map_err(|e| ZamError::Config(format!("node params: {e}")))?;
 
+    let ca_issuer = rcgen::Issuer::from_params(&ca_params, ca_key);
     let node_cert = node_params
-        .signed_by(&node_key, &ca_cert, &ca_key)
+        .signed_by(&node_key, &ca_issuer)
         .map_err(|e| ZamError::Config(format!("node cert signing failed: {e}")))?;
 
     Ok(SignedNodeCredentials {
@@ -331,8 +330,9 @@ mod tests {
         node_params.not_before = time::OffsetDateTime::from_unix_timestamp(0).expect("epoch start");
         node_params.not_after =
             time::OffsetDateTime::from_unix_timestamp(86400).expect("epoch + 1 day");
+        let ca_issuer = rcgen::Issuer::from_params(&ca_params, ca_key);
         let expired_cert = node_params
-            .signed_by(&node_key, &ca_cert, &ca_key)
+            .signed_by(&node_key, &ca_issuer)
             .expect("sign expired cert");
 
         let ca_pem = ca_cert.pem();
