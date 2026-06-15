@@ -1,0 +1,52 @@
+name: Good First Issue (internal)
+description: Tracked task suitable for a first contribution -- maintainer use only
+labels: ["good first issue"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This template is for maintainers to create well-scoped entry-point tasks.
+        **Contributors:** look for open issues labelled `good first issue` instead of filing one here.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One sentence describing the change.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context and motivation
+    validations:
+      required: true
+
+  - type: textarea
+    id: task
+    attributes:
+      label: Exact task
+      description: File to edit, function to add, test to write, etc.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How do we know this is done?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: difficulty
+    attributes:
+      label: Estimated effort
+      options:
+        - "< 30 min -- trivial (typo, one-liner, doc-only)"
+        - "~1 h -- small (one function, one test)"
+        - "~2-4 h -- medium (new flag or filter, integration test)"
+        - "> 4 h -- larger (new backend, new command)"
+    validations:
+      required: true

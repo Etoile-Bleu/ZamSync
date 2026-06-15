@@ -1,0 +1,50 @@
+name: Feature Request
+description: Propose a new feature or enhancement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping shape ZamSync. Describe what you need and why.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the use case or pain point.
+      placeholder: When deploying to 100 clinics, I need to ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How would you like this to work? Include CLI flags, output format, etc.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds you tried, or other approaches you considered.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - CLI command
+        - Sync protocol
+        - Storage / WAL
+        - Security / TLS / PKI
+        - Prometheus metrics
+        - REST API
+        - Docker / deployment
+        - Projection (zamsync project)
+        - Documentation
+        - Testing
+        - Other
+    validations:
+      required: true
