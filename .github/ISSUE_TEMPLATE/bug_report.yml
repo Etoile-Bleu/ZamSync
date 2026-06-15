@@ -1,0 +1,66 @@
+name: Bug Report
+description: Something is broken or behaves unexpectedly
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill in as much detail as you can.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+      placeholder: When I run `zamsync sync ...`, it crashes with ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Minimal commands to trigger the bug.
+      placeholder: |
+        1. zamsync submit ./node "hello"
+        2. zamsync sync ./node 127.0.0.1:7000 <id>
+        3. Error: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: The sync should complete without error.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: ZamSync version
+      placeholder: "1.1.1  (zamsync --version or from release tag)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Linux x86_64
+        - Linux ARM64 (Raspberry Pi 4)
+        - Linux ARMv7 (Raspberry Pi 2/3)
+        - Windows x86_64
+        - Docker (specify image tag in description)
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or output
+      description: Run with `RUST_LOG=debug` for more detail.
+      render: text
