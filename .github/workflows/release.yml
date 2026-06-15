@@ -29,6 +29,8 @@ jobs:
             exit 1
           fi
 
+      - uses: dtolnay/rust-toolchain@stable
+
       - name: Bump version in Cargo.toml
         run: |
           sed -i -E 's/^version = "[0-9]+\.[0-9]+\.[0-9]+"$/version = "${{ inputs.version }}"/' Cargo.toml
@@ -37,11 +39,18 @@ jobs:
             exit 1
           }
 
+      - name: Regenerate Cargo.lock
+        # cargo generate-lockfile rewrites Cargo.lock to match the bumped Cargo.toml.
+        # Without this step, Cargo.lock still contains the old version and
+        # `cargo publish` fails with "files in the working directory contain changes
+        # that were not yet committed" -- even though the tag commit looks clean.
+        run: cargo generate-lockfile
+
       - name: Commit and push version bump PR branch
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Cargo.toml
+          git add Cargo.toml Cargo.lock
           # No-op if version was already bumped (re-run on same version)
           git diff --cached --quiet || git commit -m "chore: release v${{ inputs.version }}"
           # Push to a side branch -- branch protection blocks direct pushes to main
