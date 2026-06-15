@@ -25,8 +25,7 @@ impl EventStore for FailAfterN {
 
     fn append(&mut self, event: &Event) -> ZamResult<SequenceNumber> {
         if self.inner.events().len() >= self.max {
-            return Err(ZamError::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            return Err(ZamError::Io(std::io::Error::other(
                 "no space left on device",
             )));
         }

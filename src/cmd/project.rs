@@ -150,7 +150,7 @@ mod tests {
 
     #[test]
     fn test_init_schema_creates_table() {
-        let mut conn = Connection::open_in_memory().unwrap();
+        let conn = Connection::open_in_memory().unwrap();
         init_schema(&conn).unwrap();
 
         let count: i64 = conn
@@ -165,7 +165,7 @@ mod tests {
 
     #[test]
     fn test_init_schema_idempotent() {
-        let mut conn = Connection::open_in_memory().unwrap();
+        let conn = Connection::open_in_memory().unwrap();
         init_schema(&conn).unwrap();
         init_schema(&conn).unwrap(); // must not error
     }

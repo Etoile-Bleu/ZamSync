@@ -57,7 +57,6 @@ impl Transport for TcpPeerTransport {
 #[cfg(test)]
 mod tests {
     use super::super::transport::TcpTransport;
-    use super::*;
     use std::sync::{Arc, Barrier};
     use std::thread;
     use zamsync_core::ports::StateStore;
