@@ -108,19 +108,19 @@
 ### Gaps Tier 2 -- Advanced Durability (important)
 
 - [x] **WAL key rotation**: `rekey` full roundtrip (5 records), old key rejected after rekey, non-contiguous seqs preserved
-- [ ] **Concurrent writes**: multiple threads calling `submit()` simultaneously → no lost events, consistent sequences
-- [ ] **Compaction during active sync**: compaction runs while a peer is syncing → no corruption or loss
+- [x] **Concurrent writes**: 8 threads × 100 `submit()` calls via `Arc<Mutex<Engine>>` → all 800 events survive with unique, monotonically-increasing sequences (`concurrent_test.rs`)
+- [x] **Compaction during active sync**: compact() + immediate new submit + new peer sync → WAL stays consistent, no corruption, post-compact events delivered correctly (`concurrent_test.rs`)
 - [x] **Out-of-order messages**: `EventBatch` received before `Handshake` → events applied cleanly, no panic, consistent state
 - [x] **WAL corruption mid-record**: magic bytes and version byte of a mid-file record corrupted → recovery stops at the correct boundary
 
 ### Gaps Tier 3 -- Edge Cases (nice to have)
 
 - [x] **Oversized frames**: payload at MAX_FRAME_SIZE (64 MB) rejected by `write_frame`; oversized length field in `FrameBuffer` rejected before allocation
-- [ ] **Expired TLS certificate**: cert with `not_after` date past → explicit rejection at handshake
-- [ ] **Disk full**: `submit()` when ENOSPC → error propagated, WAL not corrupted
+- [x] **Expired TLS certificate**: cert with `not_after` set to a past date → rejected at TLS handshake before any application data is exchanged (`tls::tests::test_expired_cert_rejected_at_handshake`)
+- [x] **Disk full**: `submit()` returns `ZamError::Io` when store returns ENOSPC; state stays consistent (no phantom events, correct seq counter) (`enospc_test.rs`)
 - [x] **Clock jump**: system clock rolls back sharply → HLC logical counter absorbs the jump, monotonicity preserved
 - [x] **VersionVector with 200 peers**: `find_gaps()` correct for all entries at scale
-- [ ] **CLI tests**: each command executed as a real process against a real node (`cargo test --features integration`)
+- [x] **CLI tests**: `info`, `submit`, `compact`, `serve`+`sync` executed as real processes against real nodes; binary path via `CARGO_BIN_EXE_zamsync` (`cargo test --features integration --test cli_integration`)
 
 ## Phase 11: Database Compatibility and Ecosystem
 

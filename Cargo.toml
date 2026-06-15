@@ -31,6 +31,9 @@ homepage = "https://github.com/Etoile-Bleu/ZamSync"
 keywords = ["sync", "replication", "offline", "wal", "distributed"]
 categories = ["database-implementations", "network-programming"]
 
+[features]
+integration = []
+
 [dependencies]
 zamsync-storage = { version = "1.0.3", path = "crates/zamsync-storage" }
 zamsync-network = { version = "1.0.3", path = "crates/zamsync-network" }
@@ -47,6 +50,9 @@ tokio-stream = "0.1"
 futures = "0.3"
 serde.workspace = true
 serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.52", features = [

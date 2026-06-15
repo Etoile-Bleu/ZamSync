@@ -10,6 +10,9 @@
 #   PROFILE=bhutan_2g   bhutan_2g | satellite | urban_3g (default: bhutan_2g)
 #
 # Report written to: tests/results/report.html
+# Two scenarios run back-to-back:
+#   hub-seq  --max-peers 1  (sequential baseline)
+#   hub-con  --max-peers 16 (concurrent, Phase 14)
 
 services:
   toxiproxy:
@@ -17,15 +20,41 @@ services:
     container_name: zamsync_net_toxiproxy
     networks: [net-test]
 
-  hub:
+  hub-seq:
     build:
       context: ..
       dockerfile: Dockerfile
-    container_name: zamsync_net_hub
-    command: ["serve", "/var/lib/zamsync", "0.0.0.0:9000"]
+    container_name: zamsync_net_hub_seq
+    command: ["serve", "/var/lib/hub-seq", "0.0.0.0:9000", "--max-peers", "1", "--metrics", "0.0.0.0:9090"]
     volumes:
-      - hub-data:/var/lib/zamsync
+      - hub-seq-data:/var/lib/hub-seq
     networks: [net-test]
+
+  hub-con:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: zamsync_net_hub_con
+    command: ["serve", "/var/lib/hub-con", "0.0.0.0:9000", "--max-peers", "16", "--metrics", "0.0.0.0:9090"]
+    volumes:
+      - hub-con-data:/var/lib/hub-con
+    networks: [net-test]
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: zamsync_net_prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=1h"
+      - "--web.listen-address=0.0.0.0:9091"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "19091:9091"
+    networks: [net-test]
+    depends_on:
+      - hub-seq
+      - hub-con
 
   orchestrator:
     build:
@@ -34,22 +63,31 @@ services:
     container_name: zamsync_net_orchestrator
     entrypoint: ["/tests/network_scenario.sh"]
     volumes:
-      - hub-data:/var/lib/zamsync:ro
+      - hub-seq-data:/var/lib/hub-seq:ro
+      - hub-con-data:/var/lib/hub-con:ro
       - ./results:/results
     environment:
       TOXIPROXY_ADDR: "toxiproxy:8474"
       TOXIPROXY_HOST: "toxiproxy"
-      HUB_ADDR: "hub:9000"
+      HUB_SEQ_ADDR: "hub-seq:9000"
+      HUB_SEQ_DATA: "/var/lib/hub-seq"
+      HUB_SEQ_METRICS: "hub-seq:9090"
+      HUB_CON_ADDR: "hub-con:9000"
+      HUB_CON_DATA: "/var/lib/hub-con"
+      HUB_CON_METRICS: "hub-con:9090"
       CLINIC_COUNT: "${CLINIC_COUNT:-4}"
       EVENTS: "${EVENTS:-500}"
       PROFILE: "${PROFILE:-bhutan_2g}"
     networks: [net-test]
     depends_on:
       - toxiproxy
-      - hub
+      - hub-seq
+      - hub-con
+      - prometheus
 
 volumes:
-  hub-data:
+  hub-seq-data:
+  hub-con-data:
 
 networks:
   net-test:
