@@ -1,0 +1,7 @@
+# Default owner for everything
+* @Etoile-Bleu
+
+# Security-sensitive paths
+SECURITY.md @Etoile-Bleu
+crates/zamsync-network/ @Etoile-Bleu
+crates/zamsync-storage/ @Etoile-Bleu
