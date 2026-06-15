@@ -14,6 +14,7 @@
   <img src="https://img.shields.io/badge/rust-1.75%2B-orange?style=flat-square" alt="Rust 1.75+">
   <img src="https://img.shields.io/badge/platforms-linux%20%7C%20arm64%20%7C%20armv7%20%7C%20windows-lightgrey?style=flat-square" alt="Platforms">
   <img src="https://img.shields.io/badge/docker-ghcr.io-2496ED?style=flat-square&logo=docker" alt="Docker">
+  <a href="https://github.com/sponsors/Etoile-Bleu"><img src="https://img.shields.io/badge/sponsor-%E2%9D%A4-ea4aaa?style=flat-square&logo=github-sponsors" alt="Sponsor"></a>
 </p>
 
 ---
@@ -652,6 +653,20 @@ services:
 3. Click Run
 
 The pipeline bumps `Cargo.toml`, tags the commit, builds 4 platform binaries, publishes a GitHub Release with SHA-256 checksums, pushes a Docker multi-arch image to GHCR, and runs a smoke test to verify the binary and image actually work.
+
+---
+
+## Supporting ZamSync
+
+ZamSync is an independent open-source project. If it saves you time or helps
+you build something meaningful, consider sponsoring its development.
+
+<a href="https://github.com/sponsors/Etoile-Bleu">
+  <img src="https://img.shields.io/badge/Sponsor%20on%20GitHub-%E2%9D%A4-ea4aaa?style=for-the-badge&logo=github-sponsors" alt="Sponsor on GitHub">
+</a>
+
+Sponsorships go directly toward infrastructure, hardware for ARM testing
+(Raspberry Pi nodes), and time spent on maintenance and new features.
 
 ---
 
