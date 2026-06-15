@@ -5,13 +5,13 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 1
     labels:
       - dependencies
     groups:
-      patch-updates:
-        update-types:
-          - patch
+      all-cargo:
+        patterns:
+          - "*"
 
   - package-ecosystem: github-actions
     directory: "/"

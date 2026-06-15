@@ -42,7 +42,7 @@ log.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 metrics.workspace = true
-metrics-exporter-prometheus = "0.15"
+metrics-exporter-prometheus = "0.18"
 sha2.workspace = true
 axum = { version = "0.7", features = ["json"] }
 tokio = { version = "1", features = ["rt", "net", "time", "sync"] }
@@ -50,13 +50,13 @@ tokio-stream = "0.1"
 futures = "0.3"
 serde.workspace = true
 serde_json.workspace = true
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.33", features = ["bundled"] }
 
 [dev-dependencies]
 tempfile.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { version = "0.52", features = [
+windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_System_ProcessStatus",
     "Win32_System_Threading",
