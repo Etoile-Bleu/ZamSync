@@ -59,7 +59,6 @@ macOS is not a supported target. It may work but is not tested in CI.
 - **Include a test** for any new behavior. CLI tests live in `tests/cli_integration.rs` (run with `--features integration`).
 - **No new runtime dependencies** unless strictly necessary. ZamSync compiles to a single static binary with zero system dependencies -- keep it that way.
 - **Commit messages**: use `type: subject` format (`feat:`, `fix:`, `docs:`, `chore:`, `test:`).
-- **No em dashes** in docs or comments. Use `--` or a comma instead.
 
 ## Good first issues
 
