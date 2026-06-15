@@ -116,6 +116,94 @@ fn test_compact_after_submit() {
     );
 }
 
+// ---- project -----------------------------------------------------------------
+
+#[test]
+fn test_project_creates_db_and_is_idempotent() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = bin();
+    let dir_s = dir.path().to_str().unwrap();
+
+    // Submit 3 events
+    for i in 0..3u32 {
+        Command::new(&bin)
+            .args(["submit", dir_s, &format!("record-{i}")])
+            .output()
+            .unwrap();
+    }
+
+    // First project run: should insert all 3
+    let out = Command::new(&bin)
+        .args(["project", dir_s])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "project failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("3 projected"),
+        "expected '3 projected' in output: {stdout}"
+    );
+    assert!(
+        stdout.contains("0 already present"),
+        "expected '0 already present' in output: {stdout}"
+    );
+
+    // projection.db must exist
+    assert!(
+        dir.path().join("projection.db").exists(),
+        "projection.db not created"
+    );
+
+    // Second run: all 3 already present, 0 newly projected
+    let out2 = Command::new(&bin)
+        .args(["project", dir_s])
+        .output()
+        .unwrap();
+    assert!(out2.status.success());
+    let stdout2 = String::from_utf8_lossy(&out2.stdout);
+    assert!(
+        stdout2.contains("0 projected") && stdout2.contains("3 already present"),
+        "second run should skip all: {stdout2}"
+    );
+}
+
+#[test]
+fn test_project_dry_run_no_file_created() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = bin();
+    let dir_s = dir.path().to_str().unwrap();
+
+    Command::new(&bin)
+        .args(["submit", dir_s, "event-1"])
+        .output()
+        .unwrap();
+
+    let out = Command::new(&bin)
+        .args(["project", dir_s, "--dry-run"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "project --dry-run failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("would be projected"),
+        "dry-run should mention 'would be projected': {stdout}"
+    );
+
+    // Must NOT create the database file
+    assert!(
+        !dir.path().join("projection.db").exists(),
+        "dry-run must not create projection.db"
+    );
+}
+
 // ---- serve + sync ------------------------------------------------------------
 
 /// Start hub on port 0 (OS picks the port), parse the actual address from

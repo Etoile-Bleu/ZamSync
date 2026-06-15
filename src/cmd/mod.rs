@@ -4,6 +4,7 @@ mod compact;
 mod daemon;
 mod info;
 mod keygen;
+mod project;
 mod rekey;
 mod serve;
 mod sign;
@@ -16,6 +17,7 @@ pub use compact::run as compact;
 pub use daemon::run as daemon;
 pub use info::run as info;
 pub use keygen::run as keygen;
+pub use project::run as project;
 pub use rekey::run as rekey;
 pub use serve::run as serve;
 pub use sign::run as sign;
@@ -36,6 +38,7 @@ pub fn usage() {
   zamsync rekey   <data-dir> --old-key <path> --new-key <path>
   zamsync bench   <data-dir> [--events N]
   zamsync audit   <data-dir> [--format json|text] [--since <unix-ms>] [--node <id>] [--key-file <path>]
+  zamsync project <data-dir> [--target sqlite://path | postgres://...] [--batch-size N] [--dry-run] [--key-file <path>]
 
 Flags (serve / sync / daemon):
   --tls              Use mTLS with credentials in <data-dir>/tls/

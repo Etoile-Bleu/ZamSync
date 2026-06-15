@@ -126,16 +126,15 @@
 
 ### Projection Service
 
-- [ ] `zamsync project <data-dir> --target postgres://...` -- official projection service; reads the ZamSync WAL and inserts events into a target database via parameterized queries (zero SQL injection)
-- [ ] Persistent checkpoint: resumes from the last projected `seq` after restart; no duplicates in target database
-- [ ] Configurable batch size: `--batch-size 100` to group inserts and reduce network round-trips
-- [ ] Database support:
-  - [ ] **PostgreSQL** -- `INSERT ... ON CONFLICT DO NOTHING` on `(origin_node, seq)`
-  - [ ] **MySQL / MariaDB** -- `INSERT IGNORE INTO ...`
-  - [ ] **SQLite** -- local projection for embedded devices without PG
-  - [ ] **MongoDB** -- upsert on `{origin: node_id, seq: seq}`
-  - [ ] **ClickHouse** -- append-only table for health/IoT event analytics
-- [ ] Dry-run mode: `--dry-run` prints events that would be projected without touching the database
+- [x] `zamsync project <data-dir> [--target sqlite://path] [--batch-size N] [--dry-run]` -- reads the ZamSync WAL and inserts events into SQLite via `INSERT OR IGNORE` on `(origin_node_id, seq)`; idempotent -- safe to re-run
+- [x] Persistent deduplication: `UNIQUE(origin_node_id, seq)` constraint acts as implicit checkpoint; re-runs skip already-present events with zero risk of duplicates
+- [x] Configurable batch size: `--batch-size N` (default 100) groups inserts in a single transaction per batch
+- [x] **SQLite** -- local projection for embedded devices; bundled SQLite (no system dependency); schema with HLC index for time-range queries
+- [x] Dry-run mode: `--dry-run` lists events that would be projected without touching the database
+- [ ] **PostgreSQL** -- `INSERT ... ON CONFLICT DO NOTHING` on `(origin_node, seq)`
+- [ ] **MySQL / MariaDB** -- `INSERT IGNORE INTO ...`
+- [ ] **MongoDB** -- upsert on `{origin: node_id, seq: seq}`
+- [ ] **ClickHouse** -- append-only table for health/IoT event analytics
 
 ### Event Stream
 

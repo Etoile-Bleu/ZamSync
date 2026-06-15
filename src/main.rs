@@ -25,6 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("bench") => cmd::bench(&args),
         Some("daemon") => cmd::daemon(&args),
         Some("audit") => cmd::audit(&args),
+        Some("project") => cmd::project(&args),
         _ => {
             cmd::usage();
             std::process::exit(1);
