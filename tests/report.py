@@ -2,23 +2,22 @@
 """
 ZamSync Hospital Network Simulation -- Benchmark Report Generator
 
-Reads JSON metrics from the results/ directory and produces a self-contained
-HTML report with Chart.js graphs comparing ZamSync performance under
-simulated constrained-network conditions.
+Reads JSON metrics + Prometheus text metrics from the results/ directory
+and produces a self-contained HTML report with Chart.js graphs.
 
 Usage:
     python3 report.py <results-dir>
 """
 
 import json
+import re
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 IPFS_COMPARISON = {
     "memory_mb": 210,        # IPFS daemon RSS (Go, real measurement)
     "bytes_per_event": 612,  # IPFS: 256-byte block header + CID + Merkle links overhead
-    "sync_overhead_pct": 40, # IPFS gossip overhead vs raw data on constrained networks
     "has_mtls": False,
     "has_access_control": False,
     "has_deterministic_ordering": False,
@@ -28,7 +27,6 @@ IPFS_COMPARISON = {
 
 ZAMSYNC_FACTS = {
     "bytes_per_event": 125,  # WAL record: 21-byte header + avg 104-byte JSON payload
-    "sync_overhead_pct": 0,  # VV-diff sends exactly the missing events, no gossip
     "has_mtls": True,
     "has_access_control": True,
     "has_deterministic_ordering": True,
@@ -36,6 +34,60 @@ ZAMSYNC_FACTS = {
     "protocol": "ZamSync (WAL + VV + HLC)",
 }
 
+
+# ---- Prometheus text format parser ------------------------------------------
+
+def parse_prometheus(text: str) -> dict:
+    """Parse Prometheus text format.
+    Returns {(metric_name, frozenset_of_label_pairs): float_value}
+    """
+    result = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        m = re.match(
+            r'^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{([^}]*)\})?\s+([\d.e+\-Ee]+)',
+            line,
+        )
+        if not m:
+            continue
+        name = m.group(1)
+        labels_str = m.group(2) or ""
+        try:
+            value = float(m.group(3))
+        except ValueError:
+            continue
+        labels = {}
+        for lm in re.finditer(r'(\w+)="([^"]*)"', labels_str):
+            labels[lm.group(1)] = lm.group(2)
+        result[(name, frozenset(labels.items()))] = value
+    return result
+
+
+def prom_get(prom: dict, name: str, **filters) -> float | None:
+    for (n, lf), v in prom.items():
+        if n != name:
+            continue
+        labels = dict(lf)
+        if all(labels.get(k) == str(fv) for k, fv in filters.items()):
+            return v
+    return None
+
+
+def prom_all(prom: dict, name: str, label: str) -> dict:
+    """Return {label_value: metric_value} for all series of `name`."""
+    out = {}
+    for (n, lf), v in prom.items():
+        if n != name:
+            continue
+        labels = dict(lf)
+        if label in labels:
+            out[labels[label]] = v
+    return out
+
+
+# ---- Data loading -----------------------------------------------------------
 
 def load_results(results_dir: Path):
     scenario = {}
@@ -52,11 +104,18 @@ def load_results(results_dir: Path):
         except json.JSONDecodeError:
             pass
 
-    return scenario, nodes
+    prom = {}
+    metrics_path = results_dir / "hub_metrics.txt"
+    if metrics_path.exists():
+        prom = parse_prometheus(metrics_path.read_text())
 
+    return scenario, nodes, prom
+
+
+# ---- HTML generation --------------------------------------------------------
 
 def make_report(results_dir: Path):
-    scenario, nodes = load_results(results_dir)
+    scenario, nodes, prom = load_results(results_dir)
     hub = next((n for n in nodes if n.get("role") == "hub"), None)
     clinics = [n for n in nodes if n.get("role") == "clinic"]
 
@@ -69,24 +128,205 @@ def make_report(results_dir: Path):
     total_expected = events_per_clinic * len(clinics)
     hub_events = hub["events"] if hub else 0
     convergence_pct = (hub_events / total_expected * 100) if total_expected > 0 else 0
-    hub_events_note = "estimated from WAL size" if not hub else ""
 
     clinic_names = [c["node"] for c in clinics]
     sync_times = [c.get("sync_duration_s", 0) for c in clinics]
     bytes_sent = [c.get("bytes_sent", 0) for c in clinics]
     memory_rss = [c.get("memory_rss_kb", 0) / 1024 for c in clinics]
 
-    ipfs_bytes_est = [
-        int(events_per_clinic * IPFS_COMPARISON["bytes_per_event"])
-        for _ in clinics
-    ]
+    ipfs_bytes_est = [int(events_per_clinic * IPFS_COMPARISON["bytes_per_event"]) for _ in clinics]
 
     avg_sync_time = sum(sync_times) / len(sync_times) if sync_times else 0
     total_bytes = sum(bytes_sent)
     avg_mem = sum(memory_rss) / len(memory_rss) if memory_rss else 0
 
-    serving_mode = scenario.get("serving_mode", "sequential")
-    is_sequential = serving_mode == "sequential"
+    serving_mode = scenario.get("serving_mode", "unknown")
+    wall_total_s = scenario.get("wall_total_s", 0)
+    sum_sync_s = scenario.get("sum_sync_s", sum(sync_times))
+    is_concurrent = serving_mode == "concurrent"
+
+    # ---- Prometheus-derived hub metrics -------------------------------------
+    has_prom = bool(prom)
+
+    # Events received per peer from hub side
+    prom_received = prom_all(prom, "zamsync_sync_events_received_total", "peer")
+
+    # Total hub-side session time (sum of all responder session durations)
+    prom_session_sum = prom_get(prom, "zamsync_sync_duration_seconds_sum", role="responder") or 0
+    prom_session_count = int(prom_get(prom, "zamsync_sync_duration_seconds_count", role="responder") or 0)
+    prom_avg_session = (prom_session_sum / prom_session_count) if prom_session_count > 0 else 0
+
+    # Speedup: if concurrent, wall_total ≈ max session; sequential = sum sessions
+    speedup = (sum_sync_s / wall_total_s) if wall_total_s > 0 else 1.0
+
+    # Concurrency chart data
+    concurrent_bar = wall_total_s if wall_total_s > 0 else avg_sync_time
+    sequential_bar = sum_sync_s if sum_sync_s > 0 else avg_sync_time * len(clinics)
+
+    # Per-peer received chart (match clinic names to peer ids)
+    peer_received_labels = list(prom_received.keys())
+    peer_received_values = [int(prom_received[p]) for p in peer_received_labels]
+    # Shorten peer ids for display
+    peer_received_labels_short = [f"peer-{p[:6]}" for p in peer_received_labels]
+
+    # Prometheus histogram buckets for sync duration
+    bucket_keys = sorted(
+        [float(dict(lf)["le"]) for (n, lf), _ in prom.items()
+         if n == "zamsync_sync_duration_seconds_bucket"
+         and dict(lf).get("role") == "responder"
+         and dict(lf).get("le", "+Inf") != "+Inf"],
+        key=float
+    )
+    bucket_counts = []
+    prev = 0
+    for le in bucket_keys:
+        val = int(prom_get(prom, "zamsync_sync_duration_seconds_bucket", role="responder", le=str(le)) or 0)
+        bucket_counts.append(max(0, val - prev))
+        prev = val
+    bucket_labels = [f"≤{le}s" for le in bucket_keys]
+
+    # ---- Prometheus section HTML -------------------------------------------
+    prom_section = ""
+    if has_prom:
+        prom_charts = ""
+
+        # Speedup chart only if we have wall clock data
+        if wall_total_s > 0:
+            prom_charts += f"""
+    <div class="chart-card">
+      <h2>Concurrent Hub Speedup (Phase 14)</h2>
+      <canvas id="speedupChart"></canvas>
+    </div>"""
+
+        if prom_received:
+            prom_charts += """
+    <div class="chart-card">
+      <h2>Hub -- Events Received per Peer (real Prometheus data)</h2>
+      <canvas id="peerRecvChart"></canvas>
+    </div>"""
+
+        if bucket_counts and any(b > 0 for b in bucket_counts):
+            prom_charts += """
+    <div class="chart-card">
+      <h2>Hub -- Session Duration Distribution (histogram)</h2>
+      <canvas id="histChart"></canvas>
+    </div>"""
+
+        prom_kpis = f"""
+    <div class="kpi {'kpi-ok' if is_concurrent else 'kpi-warn'}">
+      <div class="kpi-value">{'Concurrent' if is_concurrent else 'Sequential'}</div>
+      <div class="kpi-label">Hub Serving Mode</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-value">{wall_total_s}s</div>
+      <div class="kpi-label">Wall Clock (actual)</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-value">{sequential_bar:.0f}s</div>
+      <div class="kpi-label">Sequential Estimate</div>
+    </div>"""
+
+        if prom_session_count > 0:
+            prom_kpis += f"""
+    <div class="kpi">
+      <div class="kpi-value">{prom_session_count}</div>
+      <div class="kpi-label">Sessions Served (Prometheus)</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-value">{prom_avg_session:.2f}s</div>
+      <div class="kpi-label">Avg Session Duration (hub-side)</div>
+    </div>"""
+
+        if speedup > 1.1:
+            prom_kpis += f"""
+    <div class="kpi kpi-ok">
+      <div class="kpi-value">{speedup:.1f}x</div>
+      <div class="kpi-label">Concurrent Speedup</div>
+    </div>"""
+
+        prom_section = f"""
+<div class="section">
+  <h2>Hub Prometheus Metrics</h2>
+  <div class="grid">
+    {prom_kpis}
+  </div>
+  <div class="charts">
+    {prom_charts}
+  </div>
+</div>"""
+
+    # ---- Node table ---------------------------------------------------------
+    node_rows = ""
+    for n in nodes:
+        node_rows += f"""
+      <tr>
+        <td>{n['node']}</td>
+        <td>{n.get('role', '?')}</td>
+        <td>{n['events']}</td>
+        <td>{n.get('wal_size_bytes', 0) / 1024:.1f} KB</td>
+        <td>{n.get('sync_duration_s', '--')}s</td>
+        <td>{n.get('bytes_sent', 0) / 1024:.1f} KB</td>
+        <td><span class="badge {'badge-ok' if not n.get('error') else 'badge-warn'}">{('OK' if not n.get('error') else 'FAILED')}</span></td>
+      </tr>"""
+
+    # ---- Speedup JS chart ---------------------------------------------------
+    speedup_js = ""
+    if has_prom and wall_total_s > 0:
+        speedup_js = f"""
+new Chart(document.getElementById('speedupChart'), {{
+  type: 'bar',
+  data: {{
+    labels: ['Actual (concurrent)', 'Estimated (sequential)'],
+    datasets: [{{
+      label: 'Total sync wall time (s)',
+      data: [{concurrent_bar}, {sequential_bar:.0f}],
+      backgroundColor: [COLORS.zamsync, COLORS.ipfs],
+      borderColor: [COLORS.bz, COLORS.bi],
+      borderWidth: 1
+    }}]
+  }},
+  options: {{ ...base, plugins: {{ ...base.plugins,
+    title: {{ display: true, color: '#94a3b8',
+      text: '{len(clinics)} clinics @ 30kbps -- {speedup:.1f}x speedup from concurrent hub' }} }} }}
+}});"""
+
+    peer_recv_js = ""
+    if has_prom and prom_received:
+        peer_recv_js = f"""
+new Chart(document.getElementById('peerRecvChart'), {{
+  type: 'bar',
+  data: {{
+    labels: {json.dumps(peer_received_labels_short)},
+    datasets: [{{
+      label: 'Events received by hub (real)',
+      data: {json.dumps(peer_received_values)},
+      backgroundColor: COLORS.zamsync,
+      borderColor: COLORS.bz,
+      borderWidth: 1
+    }}]
+  }},
+  options: base
+}});"""
+
+    hist_js = ""
+    if has_prom and bucket_counts and any(b > 0 for b in bucket_counts):
+        hist_js = f"""
+new Chart(document.getElementById('histChart'), {{
+  type: 'bar',
+  data: {{
+    labels: {json.dumps(bucket_labels)},
+    datasets: [{{
+      label: 'Sessions in bucket',
+      data: {json.dumps(bucket_counts)},
+      backgroundColor: COLORS.zamsync,
+      borderColor: COLORS.bz,
+      borderWidth: 1
+    }}]
+  }},
+  options: base
+}});"""
+
+    run_date = scenario.get("scenario_date", datetime.now(timezone.utc).isoformat())
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -134,7 +374,7 @@ def make_report(results_dir: Path):
   {profile.get("label", "")} &mdash;
   {len(clinics)} clinic node(s) &mdash;
   {events_per_clinic} events per clinic &mdash;
-  Run: {scenario.get("scenario_date", datetime.utcnow().isoformat() + "Z")}
+  Run: {run_date}
 </p>
 
 <div class="section">
@@ -146,11 +386,11 @@ def make_report(results_dir: Path):
     </div>
     <div class="kpi">
       <div class="kpi-value">{hub_events}</div>
-      <div class="kpi-label">Events on Hub / {total_expected} expected{"&nbsp;&mdash; " + hub_events_note if hub_events_note else ""}</div>
+      <div class="kpi-label">Events on Hub / {total_expected} expected</div>
     </div>
     <div class="kpi">
       <div class="kpi-value">{avg_sync_time:.0f}s</div>
-      <div class="kpi-label">Avg Sync Duration{"&nbsp;(sequential queue)" if is_sequential else ""}</div>
+      <div class="kpi-label">Avg Clinic Sync Time</div>
     </div>
     <div class="kpi">
       <div class="kpi-value">{total_bytes / 1024:.1f} KB</div>
@@ -166,6 +406,8 @@ def make_report(results_dir: Path):
     </div>
   </div>
 </div>
+
+{prom_section}
 
 <div class="section">
   <div class="charts">
@@ -291,16 +533,7 @@ def make_report(results_dir: Path):
       </tr>
     </thead>
     <tbody>
-      {''.join(f"""
-      <tr>
-        <td>{n['node']}</td>
-        <td>{n.get('role', '?')}</td>
-        <td>{n['events']}</td>
-        <td>{n.get('wal_size_bytes', 0) / 1024:.1f} KB</td>
-        <td>{n.get('sync_duration_s', '--')}s</td>
-        <td>{n.get('bytes_sent', 0) / 1024:.1f} KB</td>
-        <td><span class="badge {'badge-ok' if not n.get('error') else 'badge-warn'}">{('OK' if not n.get('error') else 'FAILED')}</span></td>
-      </tr>""" for n in nodes)}
+      {node_rows}
     </tbody>
   </table>
 </div>
@@ -379,6 +612,10 @@ new Chart(document.getElementById('overheadChart'), {{
   }},
   options: base
 }});
+
+{speedup_js}
+{peer_recv_js}
+{hist_js}
 </script>
 </body>
 </html>

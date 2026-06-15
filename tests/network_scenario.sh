@@ -17,6 +17,7 @@ set -euo pipefail
 TOXIPROXY_ADDR="${TOXIPROXY_ADDR:-toxiproxy:8474}"
 TOXIPROXY_HOST="${TOXIPROXY_HOST:-toxiproxy}"
 HUB_ADDR="${HUB_ADDR:-hub:9000}"
+HUB_METRICS_ADDR="${HUB_METRICS_ADDR:-hub:9090}"
 CLINIC_COUNT="${CLINIC_COUNT:-4}"
 EVENTS="${EVENTS:-500}"
 PROFILE="${PROFILE:-bhutan_2g}"
@@ -130,6 +131,7 @@ export WORK EVENTS TOXIPROXY_HOST HUB_ID RESULTS PROFILE
 # ---- 4. Run all clinics in parallel -----------------------------------------
 step "Running $CLINIC_COUNT clinics in parallel ($EVENTS events each)"
 PIDS=()
+WALL_START=$(date +%s)
 for i in $(seq 1 "$CLINIC_COUNT"); do
   run_clinic "$i" &
   PIDS+=($!)
@@ -144,12 +146,10 @@ for i in "${!PIDS[@]}"; do
     FAILED=1
   fi
 done
+WALL_END=$(date +%s)
+WALL_TOTAL=$(( WALL_END - WALL_START ))
 
 # ---- 5. Hub metrics ----------------------------------------------------------
-# zamsync info needs write access (WAL crash-recovery check on open).
-# The hub volume is mounted :ro in this container, so open_wal would fail.
-# Instead, estimate hub event count from WAL file size ratio:
-#   hub_events = hub_wal_bytes * events_per_clinic / clinic1_wal_bytes
 step "Collecting hub metrics"
 HUB_WAL=$(stat -c%s /var/lib/zamsync/events.wal 2>/dev/null || echo 0)
 CLINIC1_WAL=$(stat -c%s "$WORK/clinic-1/events.wal" 2>/dev/null || echo 0)
@@ -161,12 +161,22 @@ else
   HUB_EVENTS=0
 fi
 
-# Detect concurrent vs sequential serving:
-# - concurrent: total_wall ≈ max(individual sync times)  →  max/sum > 0.7
-# - sequential: total_wall ≈ sum(individual sync times)  →  max/sum ≤ 0.7
-MAX_SYNC=$(jq -s 'map(.sync_duration_s) | max' "$RESULTS"/clinic-*.json 2>/dev/null || echo 0)
-SUM_SYNC=$(jq -s 'map(.sync_duration_s) | add' "$RESULTS"/clinic-*.json 2>/dev/null || echo 1)
-if [ "$SUM_SYNC" -gt 0 ] && [ "$(( MAX_SYNC * 100 / SUM_SYNC ))" -gt 70 ]; then
+# Scrape hub Prometheus metrics endpoint for real hub-side data.
+# The hub exposes /metrics via --metrics 0.0.0.0:9090.
+HUB_METRICS_FILE="$RESULTS/hub_metrics.txt"
+if curl -sf --max-time 5 "http://$HUB_METRICS_ADDR/metrics" -o "$HUB_METRICS_FILE"; then
+  ok "Prometheus metrics scraped from $HUB_METRICS_ADDR"
+else
+  ok "Prometheus metrics unavailable (hub not started with --metrics)"
+  echo "" > "$HUB_METRICS_FILE"
+fi
+
+# Detect concurrent vs sequential serving using wall clock.
+# - concurrent: wall_total << sum_session_times  (sessions overlapped)
+# - sequential: wall_total ≈ sum_session_times
+# Ratio wall_total*N / sum_sync < 0.7 means sessions ran in parallel.
+SUM_SYNC=$(jq -s 'map(.sync_duration_s) | add' "$RESULTS"/clinic-*.json 2>/dev/null || echo 0)
+if [ "${SUM_SYNC:-0}" -gt 0 ] && [ "$(( WALL_TOTAL * CLINIC_COUNT * 100 / SUM_SYNC ))" -lt 70 ]; then
   SERVING_MODE="concurrent"
 else
   SERVING_MODE="sequential"
@@ -175,11 +185,13 @@ fi
 printf '{"node":"hub","role":"hub","events":%s,"wal_size_bytes":%s,"sync_duration_s":0,"bytes_sent":0,"memory_rss_kb":4096}\n' \
   "$HUB_EVENTS" "$HUB_WAL" > "$RESULTS/hub.json"
 
-printf '{"network_profile":"%s","events_per_clinic":%s,"clinic_count":%s,"scenario_date":"%s","serving_mode":"%s","profile":{"label":"%s","delay_ms":%s,"jitter_ms":%s,"bandwidth_kbps":%s,"bandwidth_rate_kbps":%s}}\n' \
+printf '{"network_profile":"%s","events_per_clinic":%s,"clinic_count":%s,"scenario_date":"%s","serving_mode":"%s","wall_total_s":%s,"sum_sync_s":%s,"profile":{"label":"%s","delay_ms":%s,"jitter_ms":%s,"bandwidth_kbps":%s,"bandwidth_rate_kbps":%s}}\n' \
   "$PROFILE" "$EVENTS" "$CLINIC_COUNT" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  "$SERVING_MODE" "$LABEL" "$LATENCY" "$JITTER" "$BW_KBPS" "$BW_KBPS" > "$RESULTS/scenario.json"
+  "$SERVING_MODE" "$WALL_TOTAL" "$SUM_SYNC" \
+  "$LABEL" "$LATENCY" "$JITTER" "$BW_KBPS" "$BW_KBPS" > "$RESULTS/scenario.json"
 
 ok "Hub: ~$HUB_EVENTS / $TOTAL_EXPECTED events (estimated from WAL size)"
+ok "Serving mode: $SERVING_MODE (wall=${WALL_TOTAL}s, sum_sessions=${SUM_SYNC}s)"
 
 # ---- 6. HTML report ---------------------------------------------------------
 step "Generating HTML report"
