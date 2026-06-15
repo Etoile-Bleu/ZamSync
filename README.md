@@ -86,6 +86,7 @@ The reference deployment is the **Bhutan ePIS** (electronic patient information 
 | **Observability** | Prometheus metrics, structured tracing, audit trail (JSON Lines) |
 | **Operations** | WAL compaction, key rotation, daemon mode, benchmarking |
 | **Efficiency** | Zstd level-3 compression on all frames, chunked batches (256 events/frame) |
+| **Projection** | `zamsync project` -- project WAL events to SQLite; idempotent `INSERT OR IGNORE` on `(origin_node_id, seq)` |
 | **REST API** | Embedded HTTP server (`--http`) -- `POST /submit`, `GET /events`, `GET /events/stream` (SSE) |
 | **Platforms** | x86_64-linux, aarch64-linux, armv7-linux, x86_64-windows (static musl binaries) |
 
@@ -263,6 +264,55 @@ zamsync audit ./secure-node --key-file ./secure-node/data.key
 ```
 2026-06-14T12:00:01Z  seq=1  node=a3f2c1d8  size=22B  sha256=4a8f2c...
 ```
+
+---
+
+### Projecting to SQLite
+
+`zamsync project` reads the local WAL and inserts every event into a SQLite database via `INSERT OR IGNORE`, making your sync data queryable with standard SQL tools. Re-running is always safe: already-present rows are skipped via a `UNIQUE(origin_node_id, seq)` constraint.
+
+```bash
+# Basic: project all events into projection.db (default path)
+zamsync project ./node
+
+# Custom output path
+zamsync project ./node --target sqlite://./data/events.db
+
+# Dry run: preview what would be projected without writing anything
+zamsync project ./node --dry-run
+
+# Tune batch size for large WALs (default: 100)
+zamsync project ./node --batch-size 500
+```
+```
+3 projected, 0 already present
+```
+
+Query the database directly once projected:
+
+```bash
+sqlite3 ./node/projection.db \
+  "SELECT origin_node_id, seq, hlc_ms, payload FROM zamsync_events ORDER BY hlc_ms;"
+```
+
+```python
+import sqlite3, json
+conn = sqlite3.connect("./node/projection.db")
+for row in conn.execute("SELECT seq, payload FROM zamsync_events ORDER BY hlc_ms"):
+    print(row[0], json.loads(row[1]))
+```
+
+Schema:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `origin_node_id` | INTEGER | Node that originally submitted the event |
+| `seq` | INTEGER | Sequence number on the origin node |
+| `hlc_ms` | INTEGER | HLC wall-clock component (Unix ms) |
+| `hlc_logical` | INTEGER | HLC logical counter (tie-breaker) |
+| `event_type` | INTEGER | Application-defined event type |
+| `payload` | BLOB | Raw event payload (JSON or binary) |
+| `projected_at` | TEXT | ISO 8601 timestamp of when this row was inserted |
 
 ---
 
