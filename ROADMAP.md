@@ -120,7 +120,7 @@
 - [x] **Disk full**: `submit()` returns `ZamError::Io` when store returns ENOSPC; state stays consistent (no phantom events, correct seq counter) (`enospc_test.rs`)
 - [x] **Clock jump**: system clock rolls back sharply → HLC logical counter absorbs the jump, monotonicity preserved
 - [x] **VersionVector with 200 peers**: `find_gaps()` correct for all entries at scale
-- [ ] **CLI tests**: each command executed as a real process against a real node (`cargo test --features integration`)
+- [x] **CLI tests**: `info`, `submit`, `compact`, `serve`+`sync` executed as real processes against real nodes; binary path via `CARGO_BIN_EXE_zamsync` (`cargo test --features integration --test cli_integration`)
 
 ## Phase 11: Database Compatibility and Ecosystem
 
