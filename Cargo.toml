@@ -79,4 +79,4 @@ zstd = "0.13"
 metrics = "0.23"
 rustls = { version = "0.23", features = ["ring"] }
 rustls-pemfile = "2"
-rcgen = "0.13"
+rcgen = "0.14"
