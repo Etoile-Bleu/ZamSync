@@ -15,6 +15,7 @@ jobs:
     permissions:
       contents: write
       actions: write  # required for gh workflow run (dispatch build-release.yml)
+      pull-requests: write  # required for gh pr create (version bump PR)
 
     steps:
       - uses: actions/checkout@v4
@@ -36,14 +37,27 @@ jobs:
             exit 1
           }
 
-      - name: Commit and push
+      - name: Commit and push version bump PR branch
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Cargo.toml
           # No-op if version was already bumped (re-run on same version)
           git diff --cached --quiet || git commit -m "chore: release v${{ inputs.version }}"
-          git push
+          # Push to a side branch -- branch protection blocks direct pushes to main
+          # without passing CI. The tag (below) is what drives the actual release.
+          git push origin HEAD:chore/bump-v${{ inputs.version }} --force
+
+      - name: Open version bump PR
+        run: |
+          gh pr create \
+            --title "chore: release v${{ inputs.version }}" \
+            --body "Automated version bump. Merge after CI passes." \
+            --base main \
+            --head chore/bump-v${{ inputs.version }} \
+          || echo "PR already open -- skipping"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create and push tag
         run: |
