@@ -14,6 +14,7 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let use_tls = args.contains(&"--tls".to_string());
     let enc_key = load_encryption_key(args)?;
     let schema = load_schema(args)?;
+    let max_bytes: Option<u64> = flag_value(args, "--max-bytes").and_then(parse_byte_size);
 
     if let Some(metrics_addr) = flag_value(args, "--metrics") {
         start_metrics_server(metrics_addr)?;
@@ -28,22 +29,34 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         let sync_result = if use_tls {
             let tls_config = load_tls_config(&dir)?;
             let mut transport = TlsTcpTransport::bind("0.0.0.0:0", &tls_config)?;
-            transport
-                .connect(peer, peer_addr)
-                .and_then(|()| SyncSession::new(&mut engine, &mut transport).sync(peer))
+            transport.connect(peer, peer_addr).and_then(|()| {
+                let mut session = SyncSession::new(&mut engine, &mut transport);
+                if let Some(limit) = max_bytes {
+                    session = session.with_max_bytes(limit);
+                }
+                session.sync(peer)
+            })
         } else {
             let mut transport = TcpTransport::bind("0.0.0.0:0")?;
-            transport
-                .connect(peer, peer_addr)
-                .and_then(|()| SyncSession::new(&mut engine, &mut transport).sync(peer))
+            transport.connect(peer, peer_addr).and_then(|()| {
+                let mut session = SyncSession::new(&mut engine, &mut transport);
+                if let Some(limit) = max_bytes {
+                    session = session.with_max_bytes(limit);
+                }
+                session.sync(peer)
+            })
         };
 
         match sync_result {
             Ok(stats) => {
-                println!(
-                    "sync done: sent={} received={}",
-                    stats.events_sent, stats.events_received
+                print!(
+                    "sync done: sent={} received={} bytes={}",
+                    stats.events_sent, stats.events_received, stats.bytes_sent
                 );
+                if stats.budget_exhausted {
+                    print!(" (budget exhausted -- resume with next sync)");
+                }
+                println!();
                 return Ok(());
             }
             Err(ref e) if is_transient(e) && attempt < MAX_ATTEMPTS => {
@@ -58,4 +71,23 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     unreachable!()
+}
+
+/// Parses a byte-size string: plain integer or suffix K/M/G (case-insensitive).
+/// Examples: "1024", "2M", "512K", "1G".
+fn parse_byte_size(s: &str) -> Option<u64> {
+    let s = s.trim();
+    let (digits, suffix) = s
+        .find(|c: char| c.is_alphabetic())
+        .map(|i| (&s[..i], &s[i..]))
+        .unwrap_or((s, ""));
+    let base: u64 = digits.parse().ok()?;
+    let multiplier: u64 = match suffix.to_ascii_uppercase().as_str() {
+        "" => 1,
+        "K" => 1_024,
+        "M" => 1_024 * 1_024,
+        "G" => 1_024 * 1_024 * 1_024,
+        _ => return None,
+    };
+    base.checked_mul(multiplier)
 }

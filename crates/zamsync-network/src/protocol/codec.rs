@@ -2,7 +2,8 @@ use super::frame;
 use std::io::{Read, Write};
 use zamsync_core::{SyncMessage, ZamError, ZamResult};
 
-pub fn encode(msg: &SyncMessage, writer: &mut impl Write) -> ZamResult<()> {
+/// Encodes `msg` onto `writer` and returns the number of bytes written to the wire.
+pub fn encode(msg: &SyncMessage, writer: &mut impl Write) -> ZamResult<usize> {
     let bytes =
         rkyv::to_bytes::<_, 1024>(msg).map_err(|e| ZamError::Serialization(e.to_string()))?;
     frame::write_frame(writer, &bytes)

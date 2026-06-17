@@ -34,7 +34,7 @@ impl TlsPeerTransport {
 }
 
 impl Transport for TlsPeerTransport {
-    fn send(&mut self, _peer_id: NodeId, message: &SyncMessage) -> ZamResult<()> {
+    fn send(&mut self, _peer_id: NodeId, message: &SyncMessage) -> ZamResult<usize> {
         let mut writer = BufWriter::new(&mut self.stream);
         protocol::encode(message, &mut writer)
     }

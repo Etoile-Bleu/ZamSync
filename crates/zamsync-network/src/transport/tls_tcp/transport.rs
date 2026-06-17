@@ -204,7 +204,7 @@ impl TlsTcpTransport {
 }
 
 impl Transport for TlsTcpTransport {
-    fn send(&mut self, peer_id: NodeId, message: &SyncMessage) -> ZamResult<()> {
+    fn send(&mut self, peer_id: NodeId, message: &SyncMessage) -> ZamResult<usize> {
         let peer = self.peers.get_mut(&peer_id.0).ok_or_else(|| {
             ZamError::Protocol(format!("no TLS connection to peer {}", peer_id.0))
         })?;
