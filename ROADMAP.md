@@ -257,11 +257,11 @@ events per day fills 16 GB in roughly 10 years -- manageable, but a hub
 aggregating 50 clinics reaches 50× that. Automatic retention policies compact
 the WAL on a schedule so storage does not grow unboundedly.
 
-- [ ] **Retention policy flag**: `zamsync serve --retain 365d` compacts events older than 365 days from the WAL at startup and once per day at a configurable hour (`--compact-at 02:00`); uses the existing `compact()` path -- no new storage code
-- [ ] **Manual expiry**: `zamsync expire <data-dir> --before 2024-01-01` removes events whose HLC timestamp predates the given date; `--dry-run` lists events that would be removed with byte savings; `--min-keep 1000` always preserves at least N most recent events per node regardless of age
-- [ ] **Tombstone preservation**: the compaction tombstone record (introduced in Phase 5) is retained so peers that reconnect after the retention window receive a clear `WAL_COMPACTED` error rather than a silent gap; they must re-bootstrap from a hub snapshot
-- [ ] **Snapshot export**: `zamsync snapshot <data-dir> --output snapshot.bin` exports the current WAL as a self-contained bootstrap file; a new node can initialize from the snapshot instead of syncing all history; critical when a replacement Pi is deployed after the retention window has passed
-- [ ] **Retention report**: `zamsync info` gains a `retention` section showing oldest event date, projected full-disk date at current submission rate, and next scheduled compaction time
+- [x] **Retention policy flag**: `zamsync serve --retain 365d` applies expiry at startup via `expire_before(cutoff_ms, 0)`; daily background run deferred to Tokio migration
+- [x] **Manual expiry**: `zamsync expire <data-dir> --before 2024-01-01` removes events whose HLC timestamp predates the given date; `--dry-run` lists events that would be removed with byte savings; `--min-keep N` always preserves at least N most recent events per node regardless of age
+- [x] **Tombstone preservation**: tombstone records (empty payload) are always preserved through the WAL rewrite so compaction markers survive retention runs
+- [x] **Snapshot export**: `zamsync snapshot <data-dir> --output snapshot.bin` exports the current WAL as a self-contained bootstrap file; a new node can initialize from the snapshot instead of syncing all history
+- [x] **Retention report**: `zamsync info` shows `wal size`, `oldest` event date, and `newest` event date (projected full-disk rate deferred to Phase 20)
 
 ## Phase 20: Embedded Status Dashboard
 

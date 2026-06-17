@@ -148,6 +148,115 @@ impl WalEventStore {
     }
 }
 
+impl WalEventStore {
+    /// Remove events older than `cutoff_ms` (HLC physical timestamp in milliseconds).
+    /// Always keeps the `min_keep` most recent events per origin node regardless of age,
+    /// so nodes are never left completely empty.
+    /// Tombstone records (empty payload) are always preserved.
+    ///
+    /// Returns `(dropped, bytes_freed)` where `bytes_freed` is the reduction in WAL
+    /// file size in bytes. Returns `(0, 0)` when nothing qualifies for removal.
+    pub fn expire_before(&mut self, cutoff_ms: u64, min_keep: usize) -> ZamResult<(usize, u64)> {
+        if !self.path.exists() {
+            return Ok((0, 0));
+        }
+        self.writer.sync()?;
+
+        let size_before = std::fs::metadata(&self.path)?.len();
+
+        // Collect all raw records in WAL order (oldest first).
+        let mut tombstones: Vec<(SequenceNumber, Vec<u8>)> = Vec::new();
+        // Per-node: list of (seq, raw_payload, hlc_physical_ms) in WAL order.
+        let mut by_node: HashMap<u32, Vec<(SequenceNumber, Vec<u8>, u64)>> = HashMap::new();
+
+        let scanner = match &self.encryption {
+            Some(key) => WalScanner::open_encrypted(&self.path, Arc::clone(key))?,
+            None => WalScanner::open(&self.path)?,
+        };
+        for result in scanner.scan() {
+            let record = result?;
+            if record.payload.is_empty() {
+                tombstones.push((record.seq, record.payload));
+                continue;
+            }
+            let event: Event = rkyv::from_bytes(&record.payload)
+                .map_err(|e| ZamError::Serialization(format!("{e}")))?;
+            by_node.entry(event.origin_node.0).or_default().push((
+                record.seq,
+                record.payload,
+                event.hlc.physical,
+            ));
+        }
+
+        // Decide what to keep: newer-than-cutoff OR within the last min_keep per node.
+        let mut kept: Vec<(SequenceNumber, Vec<u8>)> = Vec::new();
+        let mut dropped = 0usize;
+
+        for (_node, records) in by_node {
+            let len = records.len();
+            let min_keep_start = len.saturating_sub(min_keep);
+            for (i, (seq, payload, phys_ms)) in records.into_iter().enumerate() {
+                if phys_ms >= cutoff_ms || i >= min_keep_start {
+                    kept.push((seq, payload));
+                } else {
+                    dropped += 1;
+                }
+            }
+        }
+
+        if dropped == 0 {
+            return Ok((0, 0));
+        }
+
+        // Merge tombstones back and sort by seq to restore WAL order.
+        kept.extend(tombstones);
+        kept.sort_unstable_by_key(|(seq, _)| *seq);
+
+        // Rewrite WAL atomically via tmp + rename.
+        let tmp = self.path.with_extension("wal.tmp");
+        {
+            let mut w = match &self.encryption {
+                Some(key) => {
+                    WalWriter::open_encrypted(&tmp, SequenceNumber::ZERO, Arc::clone(key))?
+                }
+                None => WalWriter::open(&tmp, SequenceNumber::ZERO)?,
+            };
+            for (seq, payload) in &kept {
+                w.append_at_seq(*seq, payload)?;
+            }
+            w.sync()?;
+        }
+
+        if self.path.exists() {
+            std::fs::remove_file(&self.path)?;
+        }
+        std::fs::rename(&tmp, &self.path)?;
+
+        let size_after = std::fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0);
+        let bytes_freed = size_before.saturating_sub(size_after);
+
+        // Reopen the writer on the new WAL.
+        let (last_seq, end_pos) = match &self.encryption {
+            Some(key) => WalScanner::recover_encrypted(&self.path, Arc::clone(key))?,
+            None => WalScanner::recover(&self.path)?,
+        };
+        let next_seq = last_seq.map(|s| s.next()).unwrap_or(SequenceNumber::ZERO);
+        let actual_len = std::fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0);
+        if actual_len > end_pos {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(&self.path)?
+                .set_len(end_pos)?;
+        }
+        self.writer = match &self.encryption {
+            Some(key) => WalWriter::open_encrypted(&self.path, next_seq, Arc::clone(key))?,
+            None => WalWriter::open(&self.path, next_seq)?,
+        };
+
+        Ok((dropped, bytes_freed))
+    }
+}
+
 impl EventStore for WalEventStore {
     fn next_seq(&self) -> SequenceNumber {
         self.writer.next_seq()
@@ -187,5 +296,159 @@ impl EventStore for WalEventStore {
 
     fn sync(&mut self) -> ZamResult<()> {
         self.writer.sync().map_err(Into::into)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+    use zamsync_core::{Event, Hlc, NodeId, SequenceNumber};
+
+    fn make_event(node: u32, seq: u64, phys_ms: u64, payload: Vec<u8>) -> Event {
+        Event {
+            origin_node: NodeId(node),
+            seq: SequenceNumber(seq),
+            hlc: Hlc {
+                physical: phys_ms,
+                logical: 0,
+            },
+            event_type: 1,
+            payload,
+        }
+    }
+
+    fn append_event(store: &mut WalEventStore, node: u32, seq: u64, phys_ms: u64) {
+        let event = make_event(node, seq, phys_ms, format!("payload-{seq}").into_bytes());
+        store.append(&event).unwrap();
+    }
+
+    // 1 day = 86_400_000 ms
+    const DAY: u64 = 86_400_000;
+
+    #[test]
+    fn expire_empty_wal_returns_zero() {
+        let dir = tempdir().unwrap();
+        let wal = dir.path().join("events.wal");
+        // Do NOT create the WAL -- file doesn't exist
+        let mut store = WalEventStore::open(&wal).unwrap();
+        let (dropped, freed) = store.expire_before(1_000 * DAY, 0).unwrap();
+        assert_eq!(dropped, 0);
+        assert_eq!(freed, 0);
+    }
+
+    #[test]
+    fn expire_nothing_when_all_newer() {
+        let dir = tempdir().unwrap();
+        let wal = dir.path().join("events.wal");
+        let mut store = WalEventStore::open(&wal).unwrap();
+
+        let now = 1_000 * DAY;
+        append_event(&mut store, 1, 1, now);
+        append_event(&mut store, 1, 2, now + DAY);
+        store.sync().unwrap();
+
+        // Cutoff is way in the past -- nothing qualifies
+        let (dropped, freed) = store.expire_before(10 * DAY, 0).unwrap();
+        assert_eq!(dropped, 0);
+        assert_eq!(freed, 0);
+    }
+
+    #[test]
+    fn expire_drops_old_events() {
+        let dir = tempdir().unwrap();
+        let wal = dir.path().join("events.wal");
+        let mut store = WalEventStore::open(&wal).unwrap();
+
+        let now = 1_000 * DAY;
+        // 2 old events + 1 new event for node 1
+        append_event(&mut store, 1, 1, now - 10 * DAY);
+        append_event(&mut store, 1, 2, now - 5 * DAY);
+        append_event(&mut store, 1, 3, now);
+        store.sync().unwrap();
+
+        let (dropped, freed) = store.expire_before(now - DAY, 0).unwrap();
+        assert_eq!(dropped, 2);
+        assert!(freed > 0);
+
+        // Verify remaining events
+        let remaining: Vec<_> = store.scan().unwrap().map(|r| r.unwrap()).collect();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].seq.0, 3);
+    }
+
+    #[test]
+    fn expire_min_keep_preserves_recent() {
+        let dir = tempdir().unwrap();
+        let wal = dir.path().join("events.wal");
+        let mut store = WalEventStore::open(&wal).unwrap();
+
+        let now = 1_000 * DAY;
+        // All 3 events are old
+        append_event(&mut store, 1, 1, 10 * DAY);
+        append_event(&mut store, 1, 2, 11 * DAY);
+        append_event(&mut store, 1, 3, 12 * DAY);
+        store.sync().unwrap();
+
+        // Cutoff is past all events, but min_keep=2 should retain the 2 most recent
+        let (dropped, _) = store.expire_before(now, 2).unwrap();
+        assert_eq!(dropped, 1); // only seq=1 dropped
+
+        let remaining: Vec<_> = store.scan().unwrap().map(|r| r.unwrap()).collect();
+        assert_eq!(remaining.len(), 2);
+        // seq 2 and 3 are kept (the last 2)
+        let seqs: Vec<u64> = remaining.iter().map(|e| e.seq.0).collect();
+        assert!(seqs.contains(&2));
+        assert!(seqs.contains(&3));
+    }
+
+    #[test]
+    fn expire_tombstones_always_preserved() {
+        let dir = tempdir().unwrap();
+        let wal = dir.path().join("events.wal");
+        let mut store = WalEventStore::open(&wal).unwrap();
+
+        let now = 1_000 * DAY;
+        // Write a tombstone (empty payload) with a very old seq
+        store.writer.append_at_seq(SequenceNumber(1), &[]).unwrap();
+        // Write one old real event
+        append_event(&mut store, 1, 2, 10 * DAY);
+        store.sync().unwrap();
+
+        // Expire everything older than now -- tombstone must survive
+        let (dropped, _) = store.expire_before(now, 0).unwrap();
+        assert_eq!(dropped, 1); // only the real old event
+
+        // Tombstone should still be in WAL via raw scan
+        let scanner = WalScanner::open(&store.path).unwrap();
+        let recs: Vec<_> = scanner.scan().collect();
+        assert!(
+            recs.iter().any(|r| r.as_ref().unwrap().payload.is_empty()),
+            "tombstone must survive expiry"
+        );
+    }
+
+    #[test]
+    fn expire_multi_node_independent() {
+        let dir = tempdir().unwrap();
+        let wal = dir.path().join("events.wal");
+        let mut store = WalEventStore::open(&wal).unwrap();
+
+        let now = 1_000 * DAY;
+        // Node 1: 1 old + 1 new
+        append_event(&mut store, 1, 1, 10 * DAY);
+        append_event(&mut store, 1, 2, now);
+        // Node 2: 2 old
+        append_event(&mut store, 2, 1, 10 * DAY);
+        append_event(&mut store, 2, 2, 11 * DAY);
+        store.sync().unwrap();
+
+        let (dropped, _) = store.expire_before(now - DAY, 0).unwrap();
+        assert_eq!(dropped, 3); // node1 old + node2 both
+
+        let remaining: Vec<_> = store.scan().unwrap().map(|r| r.unwrap()).collect();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].origin_node.0, 1);
+        assert_eq!(remaining[0].seq.0, 2);
     }
 }

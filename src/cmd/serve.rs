@@ -1,8 +1,9 @@
+use crate::cmd::expire::parse_retain_ms;
 use crate::http::HttpConfig;
 use crate::metrics::start_metrics_server;
 use crate::util::{
     data_dir, flag_value, load_encryption_key, load_policy, load_schema, load_tls_config,
-    node_id_from_dir, EventCounter,
+    node_id_from_dir, open_engine, EventCounter,
 };
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
@@ -84,6 +85,35 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let node_id = node_id_from_dir(&dir);
+
+    // Apply retention policy once at startup (background daily run requires Tokio migration).
+    if let Some(retain_str) = flag_value(args, "--retain") {
+        match parse_retain_ms(retain_str) {
+            Ok(retain_ms) => {
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                let cutoff_ms = now_ms.saturating_sub(retain_ms);
+                match open_engine(&dir, node_id, enc_key.clone(), schema.clone()) {
+                    Ok(mut eng) => match eng.expire_before(cutoff_ms, 0) {
+                        Ok((dropped, freed)) if dropped > 0 => {
+                            println!(
+                                "retain   : dropped {} events, freed {} KB",
+                                dropped,
+                                freed / 1024
+                            );
+                            let _ = eng.sync();
+                        }
+                        Ok(_) => {}
+                        Err(e) => eprintln!("retain   : expire error: {e}"),
+                    },
+                    Err(e) => eprintln!("retain   : engine open error: {e}"),
+                }
+            }
+            Err(e) => eprintln!("retain   : invalid --retain value: {e}"),
+        }
+    }
 
     if use_tls {
         let tls_config = load_tls_config(&dir)?;
