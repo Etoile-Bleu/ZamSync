@@ -31,9 +31,18 @@ impl Default for MockTransport {
 }
 
 impl Transport for MockTransport {
-    fn send(&mut self, peer_id: NodeId, message: &SyncMessage) -> ZamResult<()> {
+    /// Stores the message in the outbox and returns a fixed per-message byte
+    /// estimate. The estimate is intentionally rough -- MockTransport is for
+    /// routing tests, not wire-byte accuracy. Use a real TcpTransport when
+    /// byte-level accounting matters.
+    fn send(&mut self, peer_id: NodeId, message: &SyncMessage) -> ZamResult<usize> {
         self.outbox.push((peer_id, message.clone()));
-        Ok(())
+        // 32-byte baseline per frame (header + control overhead)
+        let data_bytes = match message {
+            SyncMessage::EventBatch { events, .. } => events.len() * 64,
+            _ => 0,
+        };
+        Ok(32 + data_bytes)
     }
 
     fn receive(&mut self) -> ZamResult<Option<(NodeId, SyncMessage)>> {

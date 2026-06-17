@@ -15,7 +15,9 @@ const FLAG_ZSTD: u8 = 0x01;
 ///   [4 bytes] uint32 big-endian  -- total byte count that follows (flag + body)
 ///   [1 byte]  compression flag   -- 0x00 raw, 0x01 zstd
 ///   [N bytes] body               -- raw payload or zstd-compressed payload
-pub fn write_frame(writer: &mut impl Write, payload: &[u8]) -> ZamResult<()> {
+///
+/// Returns the number of bytes written to `writer` (length prefix + flag + body).
+pub fn write_frame(writer: &mut impl Write, payload: &[u8]) -> ZamResult<usize> {
     if payload.len() as u64 >= MAX_FRAME_SIZE as u64 {
         return Err(ZamError::Protocol(format!(
             "frame payload too large: {} bytes (max {})",
@@ -40,7 +42,8 @@ pub fn write_frame(writer: &mut impl Write, payload: &[u8]) -> ZamResult<()> {
     writer.write_u32::<BigEndian>(total_len)?;
     writer.write_u8(flag)?;
     writer.write_all(&body)?;
-    Ok(())
+    // 4-byte length prefix + 1-byte flag + body
+    Ok(4 + 1 + body.len())
 }
 
 pub fn read_frame(reader: &mut impl Read) -> ZamResult<Vec<u8>> {

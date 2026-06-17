@@ -138,7 +138,7 @@ impl TcpTransport {
 }
 
 impl Transport for TcpTransport {
-    fn send(&mut self, peer_id: NodeId, message: &SyncMessage) -> ZamResult<()> {
+    fn send(&mut self, peer_id: NodeId, message: &SyncMessage) -> ZamResult<usize> {
         let peer = self
             .peers
             .get_mut(&peer_id.0)
