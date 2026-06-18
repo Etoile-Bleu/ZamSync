@@ -54,6 +54,7 @@ rusqlite = { version = "0.33", features = ["bundled"] }
 tempfile.workspace = true
 
 [dev-dependencies]
+tower = { version = "0.4", features = ["util"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.61", features = [

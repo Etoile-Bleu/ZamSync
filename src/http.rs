@@ -1,29 +1,27 @@
 use std::convert::Infallible;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
+    http::{header, StatusCode},
     response::{
         sse::{Event as SseEvent, KeepAlive, Sse},
-        IntoResponse, Json,
+        IntoResponse, Json, Response,
     },
     routing::{get, post},
     Router,
 };
 use futures::{Stream, StreamExt as _};
 use serde::{Deserialize, Serialize};
-use zamsync_core::{NodeId, SequenceNumber};
-use zamsync_storage::{EncryptionKey, PayloadSchema};
+use zamsync_core::{ports::StateStore, Event, NodeId, SequenceNumber};
+use zamsync_storage::{EncryptionKey, PayloadSchema, ZamEngine};
 
-use crate::util::open_engine;
+use crate::util::{format_date, open_engine};
 
 // ---------------------------------------------------------------------------
-// Shared state -- all fields must be Send + Sync.
-// EncryptionKey wraps a ChaCha20 cipher that may not be Sync, so we store
-// the raw 32-byte key and reconstruct per request.
+// Shared state
 // ---------------------------------------------------------------------------
 
 #[derive(Clone)]
@@ -32,6 +30,7 @@ pub struct HttpState {
     raw_key: Option<[u8; 32]>,
     node_id: NodeId,
     schema: PayloadSchema,
+    started_at: Instant,
 }
 
 impl HttpState {
@@ -49,7 +48,7 @@ pub struct HttpConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Entry point -- runs in a dedicated OS thread with its own tokio runtime.
+// Entry point
 // ---------------------------------------------------------------------------
 
 pub fn spawn(config: HttpConfig) -> std::thread::JoinHandle<()> {
@@ -67,14 +66,10 @@ pub fn spawn(config: HttpConfig) -> std::thread::JoinHandle<()> {
             raw_key,
             node_id: config.node_id,
             schema: config.schema,
+            started_at: Instant::now(),
         });
 
-        let app = Router::new()
-            .route("/health", get(health))
-            .route("/submit", post(submit))
-            .route("/events", get(events))
-            .route("/events/stream", get(events_stream))
-            .with_state(state);
+        let app = build_router(state);
 
         rt.block_on(async {
             let listener = tokio::net::TcpListener::bind(&bind_addr)
@@ -84,6 +79,17 @@ pub fn spawn(config: HttpConfig) -> std::thread::JoinHandle<()> {
             axum::serve(listener, app).await.expect("http serve");
         });
     })
+}
+
+fn build_router(state: Arc<HttpState>) -> Router {
+    Router::new()
+        .route("/health", get(health))
+        .route("/submit", post(submit))
+        .route("/events", get(events))
+        .route("/events/stream", get(events_stream))
+        .route("/ui", get(dashboard))
+        .route("/ui/data", get(ui_data))
+        .with_state(state)
 }
 
 // ---------------------------------------------------------------------------
@@ -125,6 +131,37 @@ struct EventJson {
     node_id: String,
     event_type: u32,
     payload: serde_json::Value,
+}
+
+#[derive(Serialize)]
+struct UiData {
+    node_id: String,
+    events: usize,
+    wal_size_bytes: u64,
+    uptime_seconds: u64,
+    oldest_event: Option<String>,
+    newest_event: Option<String>,
+}
+
+// WAL scan state for /ui/data: collects count + oldest/newest timestamps in one pass.
+#[derive(Default)]
+struct DashState {
+    count: usize,
+    oldest_ms: Option<u64>,
+    newest_ms: Option<u64>,
+}
+
+impl StateStore for DashState {
+    fn apply_event(&mut self, _seq: SequenceNumber, event: &Event) -> zamsync_core::ZamResult<()> {
+        self.count += 1;
+        let phys = event.hlc.physical;
+        self.oldest_ms = Some(self.oldest_ms.map_or(phys, |o| o.min(phys)));
+        self.newest_ms = Some(self.newest_ms.map_or(phys, |n| n.max(phys)));
+        Ok(())
+    }
+    fn last_applied_seq(&self) -> Option<SequenceNumber> {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -256,7 +293,6 @@ async fn events(
 }
 
 // SSE endpoint: polls every 500ms and streams new events as they appear.
-// Uses `unfold` so `last_seq` is properly threaded through each poll iteration.
 async fn events_stream(
     State(s): State<Arc<HttpState>>,
     Query(q): Query<SinceQuery>,
@@ -302,4 +338,215 @@ async fn events_stream(
             .interval(Duration::from_secs(15))
             .text("ping"),
     )
+}
+
+// Serves the embedded status dashboard with security headers.
+async fn dashboard() -> Response {
+    let html = include_str!("dashboard.html");
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+            (
+                header::HeaderName::from_static("content-security-policy"),
+                // Inline styles + scripts are ours; no external origins allowed.
+                "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'none'",
+            ),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            (header::X_FRAME_OPTIONS, "SAMEORIGIN"),
+            (
+                header::HeaderName::from_static("referrer-policy"),
+                "no-referrer",
+            ),
+        ],
+        html,
+    )
+        .into_response()
+}
+
+// Returns aggregate node stats consumed by the dashboard.
+async fn ui_data(State(s): State<Arc<HttpState>>) -> Result<Json<UiData>, AppError> {
+    let node_id = format!("{:08x}", s.node_id.0);
+    let uptime_seconds = s.started_at.elapsed().as_secs();
+
+    let (events, wal_size_bytes, oldest_ms, newest_ms) = tokio::task::spawn_blocking({
+        let s = s.clone();
+        move || -> Result<(usize, u64, Option<u64>, Option<u64>), String> {
+            let engine: zamsync_storage::ZamEngine<
+                zamsync_storage::WalEventStore,
+                zamsync_storage::FilePeerStore,
+                DashState,
+            > = match s.raw_key {
+                Some(key) => ZamEngine::open_wal_encrypted(
+                    &*s.data_dir,
+                    s.node_id,
+                    DashState::default(),
+                    EncryptionKey::from_bytes(key),
+                )
+                .map_err(|e| e.to_string())?,
+                None => ZamEngine::open_wal(&*s.data_dir, s.node_id, DashState::default())
+                    .map_err(|e| e.to_string())?,
+            };
+            let st = engine.state();
+            let wal_size = engine.wal_byte_size();
+            Ok((st.count, wal_size, st.oldest_ms, st.newest_ms))
+        }
+    })
+    .await
+    .map_err(|e| AppError(e.to_string()))?
+    .map_err(AppError)?;
+
+    Ok(Json(UiData {
+        node_id,
+        events,
+        wal_size_bytes,
+        uptime_seconds,
+        oldest_event: oldest_ms.map(format_date),
+        newest_event: newest_ms.map(format_date),
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt as _;
+
+    fn make_state() -> (Arc<HttpState>, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let state = Arc::new(HttpState {
+            data_dir: Arc::new(dir.path().to_path_buf()),
+            raw_key: None,
+            node_id: NodeId(1),
+            schema: PayloadSchema::None,
+            started_at: Instant::now(),
+        });
+        (state, dir) // return dir so it stays alive for the test
+    }
+
+    #[tokio::test]
+    async fn ui_returns_html_200() {
+        let (state, _dir) = make_state();
+        let app = build_router(state);
+        let resp = app
+            .oneshot(Request::builder().uri("/ui").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let ct = resp
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert!(
+            ct.contains("text/html"),
+            "content-type must be text/html, got {ct}"
+        );
+    }
+
+    #[tokio::test]
+    async fn ui_has_security_headers() {
+        let (state, _dir) = make_state();
+        let app = build_router(state);
+        let resp = app
+            .oneshot(Request::builder().uri("/ui").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let headers = resp.headers();
+        assert!(
+            headers.contains_key("content-security-policy"),
+            "missing Content-Security-Policy"
+        );
+        assert!(
+            headers.contains_key(header::X_CONTENT_TYPE_OPTIONS),
+            "missing X-Content-Type-Options"
+        );
+        assert!(
+            headers.contains_key(header::X_FRAME_OPTIONS),
+            "missing X-Frame-Options"
+        );
+    }
+
+    #[tokio::test]
+    async fn ui_data_returns_valid_json() {
+        let (state, _dir) = make_state();
+        let app = build_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/ui/data")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let ct = resp
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert!(ct.contains("application/json"), "got: {ct}");
+        let body = axum::body::to_bytes(resp.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let data: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(data["node_id"].is_string(), "node_id must be a string");
+        assert!(data["events"].is_number(), "events must be a number");
+        assert!(
+            data["wal_size_bytes"].is_number(),
+            "wal_size_bytes must be a number"
+        );
+        assert!(
+            data["uptime_seconds"].is_number(),
+            "uptime_seconds must be a number"
+        );
+    }
+
+    #[tokio::test]
+    async fn ui_data_node_id_matches_state() {
+        let (state, _dir) = make_state();
+        let expected = format!("{:08x}", state.node_id.0);
+        let app = build_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/ui/data")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let data: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(data["node_id"].as_str().unwrap(), expected);
+    }
+
+    #[tokio::test]
+    async fn health_returns_ok() {
+        let (state, _dir) = make_state();
+        let app = build_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let data: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(data["status"].as_str().unwrap(), "ok");
+    }
 }

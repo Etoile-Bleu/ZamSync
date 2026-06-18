@@ -1,4 +1,4 @@
-use crate::util::{data_dir, flag_value, load_encryption_key, node_id_from_dir};
+use crate::util::{data_dir, flag_value, format_date, load_encryption_key, node_id_from_dir};
 use zamsync_core::{ports::StateStore, Event, SequenceNumber, ZamResult};
 use zamsync_storage::ZamEngine;
 
@@ -67,20 +67,4 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
-}
-
-/// Convert Unix milliseconds to `YYYY-MM-DD` (UTC) via reverse Julian Day Number.
-fn format_date(ms: u64) -> String {
-    let days = (ms / 86_400_000) as i64;
-    let jdn = days + 2_440_588;
-    let a = jdn + 32044;
-    let b = (4 * a + 3) / 146097;
-    let c = a - (146097 * b) / 4;
-    let d = (4 * c + 3) / 1461;
-    let e = c - (1461 * d) / 4;
-    let m = (5 * e + 2) / 153;
-    let day = e - (153 * m + 2) / 5 + 1;
-    let month = m + 3 - 12 * (m / 10);
-    let year = 100 * b + d - 4800 + m / 10;
-    format!("{:04}-{:02}-{:02}", year, month, day)
 }

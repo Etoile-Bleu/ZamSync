@@ -25,7 +25,7 @@ services:
       context: ..
       dockerfile: Dockerfile
     container_name: zamsync_net_hub_seq
-    command: ["serve", "/var/lib/zamsync", "0.0.0.0:9000", "--max-peers", "1", "--metrics", "0.0.0.0:9090"]
+    command: ["serve", "/var/lib/zamsync", "0.0.0.0:9000", "--max-peers", "1", "--metrics", "0.0.0.0:9090", "--http", "0.0.0.0:8080"]
     volumes:
       - hub-seq-data:/var/lib/zamsync
     networks: [net-test]
@@ -35,7 +35,7 @@ services:
       context: ..
       dockerfile: Dockerfile
     container_name: zamsync_net_hub_con
-    command: ["serve", "/var/lib/zamsync", "0.0.0.0:9000", "--max-peers", "16", "--metrics", "0.0.0.0:9090"]
+    command: ["serve", "/var/lib/zamsync", "0.0.0.0:9000", "--max-peers", "16", "--metrics", "0.0.0.0:9090", "--http", "0.0.0.0:8080"]
     volumes:
       - hub-con-data:/var/lib/zamsync
     networks: [net-test]
@@ -72,9 +72,11 @@ services:
       HUB_SEQ_ADDR: "hub-seq:9000"
       HUB_SEQ_DATA: "/var/lib/hub-seq"
       HUB_SEQ_METRICS: "hub-seq:9090"
+      HUB_SEQ_HTTP: "hub-seq:8080"
       HUB_CON_ADDR: "hub-con:9000"
       HUB_CON_DATA: "/var/lib/hub-con"
       HUB_CON_METRICS: "hub-con:9090"
+      HUB_CON_HTTP: "hub-con:8080"
       CLINIC_COUNT: "${CLINIC_COUNT:-4}"
       EVENTS: "${EVENTS:-500}"
       PROFILE: "${PROFILE:-bhutan_2g}"

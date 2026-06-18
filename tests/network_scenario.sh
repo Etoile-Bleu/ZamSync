@@ -25,9 +25,11 @@ TOXIPROXY_HOST="${TOXIPROXY_HOST:-toxiproxy}"
 HUB_SEQ_ADDR="${HUB_SEQ_ADDR:-hub-seq:9000}"
 HUB_SEQ_DATA="${HUB_SEQ_DATA:-/var/lib/hub-seq}"
 HUB_SEQ_METRICS="${HUB_SEQ_METRICS:-hub-seq:9090}"
+HUB_SEQ_HTTP="${HUB_SEQ_HTTP:-hub-seq:8080}"
 HUB_CON_ADDR="${HUB_CON_ADDR:-hub-con:9000}"
 HUB_CON_DATA="${HUB_CON_DATA:-/var/lib/hub-con}"
 HUB_CON_METRICS="${HUB_CON_METRICS:-hub-con:9090}"
+HUB_CON_HTTP="${HUB_CON_HTTP:-hub-con:8080}"
 CLINIC_COUNT="${CLINIC_COUNT:-4}"
 EVENTS="${EVENTS:-500}"
 PROFILE="${PROFILE:-bhutan_2g}"
@@ -124,6 +126,7 @@ run_scenario() {
   local HUB_DATA="$4"    # "/var/lib/hub-seq"
   local HUB_METRICS="$5" # "hub-seq:9090"
   local PORT_BASE="$6"   # 9000 for seq proxies, 9010 for con proxies
+  local HUB_HTTP="${7:-}" # "hub-seq:8080"
 
   local MODE_RESULTS="$RESULTS/$MODE"
   local WORK="/tmp/clinics-$MODE"
@@ -253,15 +256,56 @@ run_scenario() {
     ok "[$MODE] Phase 19: WAL not present (clinic-1 failed sync earlier, skip)"
   fi
 
+  # Phase 20: HTTP dashboard smoke check
+  step "[$MODE] Phase 20: HTTP dashboard smoke check"
+  if [ -n "$HUB_HTTP" ]; then
+    local ui_html="/tmp/${MODE}_ui.html"
+    if curl -sf --max-time 10 "http://$HUB_HTTP/ui" -o "$ui_html"; then
+      if grep -q "ZamSync" "$ui_html"; then
+        ok "[$MODE] /ui returns HTML with ZamSync branding"
+      else
+        err "[$MODE] /ui HTML missing ZamSync content"
+        FAILED=1
+      fi
+    else
+      err "[$MODE] /ui endpoint unreachable at http://$HUB_HTTP/ui"
+      FAILED=1
+    fi
+
+    local ui_node_id
+    if ui_node_id=$(curl -sf --max-time 10 "http://$HUB_HTTP/ui/data" | jq -r '.node_id // empty' 2>/dev/null); then
+      if [ -n "$ui_node_id" ]; then
+        ok "[$MODE] /ui/data node_id: $ui_node_id"
+      else
+        err "[$MODE] /ui/data JSON missing node_id field"
+        FAILED=1
+      fi
+    else
+      err "[$MODE] /ui/data endpoint unreachable or returned invalid JSON"
+      FAILED=1
+    fi
+
+    local ui_events
+    ui_events=$(curl -sf --max-time 10 "http://$HUB_HTTP/ui/data" | jq -r '.events // empty' 2>/dev/null || echo "")
+    if [ -n "$ui_events" ]; then
+      ok "[$MODE] /ui/data events: $ui_events"
+    else
+      err "[$MODE] /ui/data missing events field"
+      FAILED=1
+    fi
+  else
+    ok "[$MODE] Phase 20: HUB_HTTP not set, skipping dashboard check"
+  fi
+
   return $FAILED
 }
 
 # ---- Run both scenarios ------------------------------------------------------
 # Sequential first (port base 9000: clinics on 9001-9004)
-run_scenario "seq" "$HUB_SEQ_ADDR" "$HUB_SEQ_ID" "$HUB_SEQ_DATA" "$HUB_SEQ_METRICS" 9000
+run_scenario "seq" "$HUB_SEQ_ADDR" "$HUB_SEQ_ID" "$HUB_SEQ_DATA" "$HUB_SEQ_METRICS" 9000 "$HUB_SEQ_HTTP"
 
 # Concurrent second (port base 9010: clinics on 9011-9014)
-run_scenario "con" "$HUB_CON_ADDR" "$HUB_CON_ID" "$HUB_CON_DATA" "$HUB_CON_METRICS" 9010
+run_scenario "con" "$HUB_CON_ADDR" "$HUB_CON_ID" "$HUB_CON_DATA" "$HUB_CON_METRICS" 9010 "$HUB_CON_HTTP"
 
 # ---- Generate comparison report ---------------------------------------------
 step "Generating comparison report"

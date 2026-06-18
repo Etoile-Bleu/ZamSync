@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ZamSync</title>
+  <style>
+    :root {
+      --bg:      #0d1117;
+      --surface: #161b22;
+      --border:  #30363d;
+      --text:    #e6edf3;
+      --muted:   #8b949e;
+      --green:   #3fb950;
+      --yellow:  #d29922;
+      --red:     #f85149;
+      --blue:    #58a6ff;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace;
+      min-height: 100dvh;
+      padding: 2rem clamp(1rem, 5vw, 3rem);
+    }
+
+    /* ---- Header ---- */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding-bottom: 1.25rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 2rem;
+    }
+    .logo { font-size: 1.1rem; font-weight: 700; color: var(--blue); letter-spacing: 0.04em; }
+    .dot {
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      background: var(--muted);
+      transition: background 0.4s;
+      flex-shrink: 0;
+    }
+    .dot.ok {
+      background: var(--green);
+      animation: pulse 2.5s infinite;
+    }
+    .dot.err { background: var(--red); }
+    @keyframes pulse {
+      0%   { box-shadow: 0 0 0 0   rgba(63,185,80,.6); }
+      70%  { box-shadow: 0 0 0 6px rgba(63,185,80,0); }
+      100% { box-shadow: 0 0 0 0   rgba(63,185,80,0); }
+    }
+    .status      { font-size: 0.75rem; color: var(--muted); }
+    .status.ok   { color: var(--green); }
+    .status.err  { color: var(--red); }
+    .node-badge {
+      margin-left: auto;
+      font-size: 0.7rem;
+      color: var(--muted);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 0.2rem 0.6rem;
+      border-radius: 4px;
+    }
+
+    /* ---- Stat cards ---- */
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem 1.25rem 1rem;
+    }
+    .card-label {
+      font-size: 0.65rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      margin-bottom: 0.5rem;
+    }
+    .card-value {
+      font-size: 1.9rem;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--text);
+    }
+    .card-value.blue { color: var(--blue); }
+    .card-sub { font-size: 0.7rem; color: var(--muted); margin-top: 0.4rem; }
+
+    /* ---- Live events table ---- */
+    .section-title {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      margin-bottom: 0.75rem;
+    }
+    .events-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.78rem;
+    }
+    .events-table th {
+      text-align: left;
+      color: var(--muted);
+      font-size: 0.65rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      padding: 0.4rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .events-table td {
+      padding: 0.45rem 0.75rem;
+      border-bottom: 1px solid rgba(48,54,61,.5);
+      vertical-align: middle;
+      max-width: 320px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .events-table tr:last-child td { border-bottom: none; }
+    .events-table tbody tr { animation: fadein 0.15s ease; }
+    @keyframes fadein { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
+    .seq-badge {
+      font-size: 0.65rem;
+      color: var(--muted);
+      background: rgba(88,166,255,.08);
+      padding: 0.1rem 0.4rem;
+      border-radius: 3px;
+    }
+    .empty-state {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.8rem;
+      padding: 2rem 0;
+    }
+
+    /* ---- Footer ---- */
+    footer {
+      margin-top: 3rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.65rem;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <span class="dot" id="dot"></span>
+  <span class="logo">ZamSync</span>
+  <span class="status" id="status">connecting...</span>
+  <span class="node-badge" id="node-id">--</span>
+</header>
+
+<div class="cards">
+  <article class="card">
+    <div class="card-label">Events</div>
+    <div class="card-value blue" id="events">--</div>
+    <div class="card-sub" id="events-range">--</div>
+  </article>
+  <article class="card">
+    <div class="card-label">WAL Size</div>
+    <div class="card-value" id="wal-size">--</div>
+  </article>
+  <article class="card">
+    <div class="card-label">Uptime</div>
+    <div class="card-value" id="uptime">--</div>
+  </article>
+</div>
+
+<p class="section-title">Live stream</p>
+<table class="events-table">
+  <thead>
+    <tr>
+      <th>Seq</th>
+      <th>Node</th>
+      <th>Type</th>
+      <th>Payload</th>
+    </tr>
+  </thead>
+  <tbody id="events-body">
+    <tr><td colspan="4" class="empty-state">waiting for events...</td></tr>
+  </tbody>
+</table>
+
+<footer>
+  <span>ZamSync -- offline-first WAL sync</span>
+  <span id="last-updated"></span>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+
+  const $ = id => document.getElementById(id);
+  const MAX_ROWS = 30;
+  const liveEvents = [];
+
+  // ---- Formatters ----
+
+  function fmtBytes(b) {
+    if (b === 0) return '0 B';
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+    return (b / 1048576).toFixed(2) + ' MB';
+  }
+
+  function fmtUptime(s) {
+    s = Math.max(0, Math.floor(s));
+    if (s < 60)   return s + 's';
+    if (s < 3600) return Math.floor(s / 60) + 'm ' + (s % 60) + 's';
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    return h + 'h ' + m + 'm';
+  }
+
+  function fmtPayload(val) {
+    const s = (val === null || val === undefined)
+      ? ''
+      : (typeof val === 'string' ? val : JSON.stringify(val));
+    return s.length > 72 ? s.slice(0, 69) + '...' : s;
+  }
+
+  // ---- Client-side uptime ticker (no server call) ----
+
+  let uptimeBase = 0;
+  let uptimeAnchor = performance.now();
+
+  function tickUptime() {
+    const elapsed = (performance.now() - uptimeAnchor) / 1000;
+    $('uptime').textContent = fmtUptime(uptimeBase + elapsed);
+  }
+  setInterval(tickUptime, 1000);
+
+  // ---- Stats fetch -- triggered by SSE event or page load ----
+
+  async function fetchStats() {
+    try {
+      const r = await fetch('/ui/data');
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+
+      uptimeBase = d.uptime_seconds;
+      uptimeAnchor = performance.now();
+      tickUptime();
+
+      $('node-id').textContent = 'node ' + d.node_id;
+      $('events').textContent = Number(d.events).toLocaleString();
+      $('wal-size').textContent = fmtBytes(d.wal_size_bytes);
+
+      const range = (d.oldest_event && d.newest_event)
+        ? d.oldest_event + ' -- ' + d.newest_event
+        : 'no events yet';
+      $('events-range').textContent = range;
+
+      setOnline();
+      $('last-updated').textContent = 'updated ' + new Date().toLocaleTimeString();
+    } catch (e) {
+      setError('stats unavailable');
+    }
+  }
+
+  // ---- Status helpers ----
+
+  function setOnline() {
+    $('dot').className = 'dot ok';
+    const s = $('status');
+    s.textContent = 'online';
+    s.className = 'status ok';
+  }
+
+  function setConnecting() {
+    $('dot').className = 'dot';
+    const s = $('status');
+    s.textContent = 'connecting...';
+    s.className = 'status';
+  }
+
+  function setError(msg) {
+    $('dot').className = 'dot err';
+    const s = $('status');
+    s.textContent = msg;
+    s.className = 'status err';
+  }
+
+  // ---- Live event table ----
+
+  // Tracks the highest seq seen so reconnects resume from the right position.
+  let lastKnownSeq = 0;
+  // Secondary dedup guard for any edge case where the server sends a duplicate.
+  const seenSeqs = new Set();
+
+  function pushEvent(e) {
+    if (seenSeqs.has(e.seq)) return;
+    seenSeqs.add(e.seq);
+    if (e.seq > lastKnownSeq) lastKnownSeq = e.seq;
+    liveEvents.unshift(e);
+    if (liveEvents.length > MAX_ROWS) liveEvents.pop();
+    renderTable();
+  }
+
+  function renderTable() {
+    const tbody = $('events-body');
+    if (liveEvents.length === 0) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 4;
+      td.className = 'empty-state';
+      td.textContent = 'waiting for events...';
+      tr.appendChild(td);
+      tbody.replaceChildren(tr);
+      return;
+    }
+    const rows = liveEvents.map(e => {
+      const tr = document.createElement('tr');
+
+      const seqTd = document.createElement('td');
+      const badge = document.createElement('span');
+      badge.className = 'seq-badge';
+      badge.textContent = '#' + e.seq;
+      seqTd.appendChild(badge);
+
+      const nodeTd = document.createElement('td');
+      nodeTd.textContent = String(e.node_id);
+
+      const typeTd = document.createElement('td');
+      typeTd.textContent = String(e.event_type);
+
+      const payloadTd = document.createElement('td');
+      const fullPayload = JSON.stringify(e.payload);
+      payloadTd.textContent = fmtPayload(e.payload);
+      payloadTd.title = fullPayload;
+
+      tr.append(seqTd, nodeTd, typeTd, payloadTd);
+      return tr;
+    });
+    tbody.replaceChildren(...rows);
+  }
+
+  // ---- SSE with exponential backoff + Visibility API ----
+
+  let sseBackoff = 1000;
+  let sseTimer = null;
+  let es = null;
+
+  function connectSSE() {
+    if (es) { es.close(); es = null; }
+    clearTimeout(sseTimer);
+    setConnecting();
+
+    // Resume from the last seen seq so reconnects never replay already-shown events.
+    es = new EventSource('/events/stream?since=' + lastKnownSeq);
+
+    es.onopen = () => {
+      sseBackoff = 1000;
+      // Refresh stats once connection is established
+      fetchStats();
+    };
+
+    es.onmessage = evt => {
+      try {
+        const e = JSON.parse(evt.data);
+        pushEvent(e);
+      } catch { /* ignore malformed frame */ }
+      // New event -> refresh aggregate stats
+      fetchStats();
+    };
+
+    es.onerror = () => {
+      es.close();
+      es = null;
+      const retryIn = (sseBackoff / 1000).toFixed(0);
+      setError('stream lost -- retry in ' + retryIn + 's');
+      if (!document.hidden) {
+        sseTimer = setTimeout(connectSSE, sseBackoff);
+      }
+      sseBackoff = Math.min(sseBackoff * 2, 30_000);
+    };
+  }
+
+  // Resume when tab becomes visible again
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      connectSSE();
+    }
+  });
+
+  // ---- Boot ----
+  fetchStats();
+  connectSSE();
+})();
+</script>
+</body>
+</html>
