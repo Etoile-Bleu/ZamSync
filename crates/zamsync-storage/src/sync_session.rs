@@ -174,6 +174,7 @@ where
             "sync complete"
         );
         self.engine.sync()?;
+        gauge!("zamsync_wal_size_bytes").set(self.engine.wal_byte_size() as f64);
         Ok(stats)
     }
 
@@ -257,6 +258,7 @@ where
             "serve_one complete"
         );
         self.engine.sync()?;
+        gauge!("zamsync_wal_size_bytes").set(self.engine.wal_byte_size() as f64);
         Ok(stats)
     }
 
