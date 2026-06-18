@@ -245,6 +245,16 @@ impl<S: StateStore> ZamEngine<WalEventStore, FilePeerStore, S> {
         ZamEngine::new(node_id, event_store, peer_store, state)
     }
 
+    /// Removes events whose HLC physical timestamp is older than `cutoff_ms`
+    /// (milliseconds since Unix epoch), always preserving the `min_keep` most
+    /// recent events per origin node. Tombstone records are never removed.
+    ///
+    /// Returns `(dropped, bytes_freed)`. Intended for scheduled retention policies
+    /// (e.g. `--retain 365d` on the hub) to bound WAL growth on SD-card devices.
+    pub fn expire_before(&mut self, cutoff_ms: u64, min_keep: usize) -> ZamResult<(usize, u64)> {
+        self.event_store.expire_before(cutoff_ms, min_keep)
+    }
+
     /// Drops WAL records that ALL known peers have confirmed receiving.
     ///
     /// The compaction frontier is the per-node minimum of `peer.known_vv` across

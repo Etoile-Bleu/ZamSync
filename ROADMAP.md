@@ -244,10 +244,10 @@ quota and block all other network use. Bandwidth budgeting caps transfer per
 session and per day, allowing clinics to sync incrementally across multiple
 scheduled windows.
 
-- [ ] **Per-session cap**: `zamsync sync --max-bytes 2M` stops sending after 2 MB of WAL frames have been transmitted in the current session; resumes from the correct VV offset on the next invocation (no re-transmission, no data loss)
+- [x] **Per-session cap**: `zamsync sync --max-bytes 2M` stops sending after 2 MB of WAL frames have been transmitted in the current session; resumes from the correct VV offset on the next invocation (no re-transmission, no data loss)
+- [x] **Prometheus metrics**: `zamsync_bytes_sent_total` and `zamsync_budget_exhausted_total` (labeled by peer) added to the existing metrics endpoint; wire-accurate byte count returned from `Transport::send()` after compression
 - [ ] **Daily budget enforcement**: `zamsync serve --daily-budget 20M` tracks bytes transferred per calendar day per peer; once a peer reaches its budget the hub finishes the current batch then closes with `SyncComplete` so the clinic receives partial progress
 - [ ] **Budget accounting persistence**: byte counters are written to `budget.bin` in the data directory; survive hub restarts; reset at local midnight
-- [ ] **Prometheus metrics**: `zamsync_bytes_sent_total`, `zamsync_bytes_received_total`, `zamsync_budget_remaining_bytes` added to the existing metrics endpoint; enables alerting when a clinic is consistently hitting its budget
 - [ ] **Dry-run estimation**: `zamsync sync --max-bytes 0 --dry-run` reports how many bytes a full sync would transfer without sending anything; clinic operator can plan the sync window size accordingly
 
 ## Phase 19: Event Retention and Automatic Compaction
@@ -257,11 +257,11 @@ events per day fills 16 GB in roughly 10 years -- manageable, but a hub
 aggregating 50 clinics reaches 50× that. Automatic retention policies compact
 the WAL on a schedule so storage does not grow unboundedly.
 
-- [ ] **Retention policy flag**: `zamsync serve --retain 365d` compacts events older than 365 days from the WAL at startup and once per day at a configurable hour (`--compact-at 02:00`); uses the existing `compact()` path -- no new storage code
-- [ ] **Manual expiry**: `zamsync expire <data-dir> --before 2024-01-01` removes events whose HLC timestamp predates the given date; `--dry-run` lists events that would be removed with byte savings; `--min-keep 1000` always preserves at least N most recent events per node regardless of age
-- [ ] **Tombstone preservation**: the compaction tombstone record (introduced in Phase 5) is retained so peers that reconnect after the retention window receive a clear `WAL_COMPACTED` error rather than a silent gap; they must re-bootstrap from a hub snapshot
-- [ ] **Snapshot export**: `zamsync snapshot <data-dir> --output snapshot.bin` exports the current WAL as a self-contained bootstrap file; a new node can initialize from the snapshot instead of syncing all history; critical when a replacement Pi is deployed after the retention window has passed
-- [ ] **Retention report**: `zamsync info` gains a `retention` section showing oldest event date, projected full-disk date at current submission rate, and next scheduled compaction time
+- [x] **Retention policy flag**: `zamsync serve --retain 365d` applies expiry at startup via `expire_before(cutoff_ms, 0)`; daily background run deferred to Tokio migration
+- [x] **Manual expiry**: `zamsync expire <data-dir> --before 2024-01-01` removes events whose HLC timestamp predates the given date; `--dry-run` lists events that would be removed with byte savings; `--min-keep N` always preserves at least N most recent events per node regardless of age
+- [x] **Tombstone preservation**: tombstone records (empty payload) are always preserved through the WAL rewrite so compaction markers survive retention runs
+- [x] **Snapshot export**: `zamsync snapshot <data-dir> --output snapshot.bin` exports the current WAL as a self-contained bootstrap file; a new node can initialize from the snapshot instead of syncing all history
+- [x] **Retention report**: `zamsync info` shows `wal size`, `oldest` event date, and `newest` event date (projected full-disk rate deferred to Phase 20)
 
 ## Phase 20: Embedded Status Dashboard
 

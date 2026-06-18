@@ -85,7 +85,7 @@ Single static binary. Runs on a Raspberry Pi 2. 512 MB RAM minimum.
 | **Access control** | `--policy own` -- clinic A cannot read clinic B's records |
 | **Validation** | JSON schema enforcement on submit and replicated events |
 | **Observability** | Prometheus metrics, structured tracing, audit trail (JSON Lines) |
-| **Operations** | WAL compaction, key rotation, daemon mode, benchmarking |
+| **Operations** | WAL compaction, key rotation, daemon mode, benchmarking, event retention (`expire`, `snapshot`) |
 | **Efficiency** | Zstd level-3 compression on all frames, chunked batches (256 events/frame) |
 | **Projection** | `zamsync project` -- project WAL events to SQLite; idempotent `INSERT OR IGNORE` on `(origin_node_id, seq)` |
 | **REST API** | Embedded HTTP server (`--http`) -- `POST /submit`, `GET /events`, `GET /events/stream` (SSE) |
@@ -202,10 +202,13 @@ zamsync submit ./node '{"patient": "P-002", "ward": "ICU", "type": "admission"}'
 zamsync info ./node
 ```
 ```
-Node ID : a3f2c1d8e5b67f90
-Events  : 3
-Peers   : 0
-WAL     : ./node/events.wal (1.2 KB)
+node_id  : 2748582051
+data_dir : ./node
+events   : 3
+vv       : node 2748582051 @ seq 3
+wal size : 1 KB
+oldest   : 2026-06-17
+newest   : 2026-06-17
 ```
 
 ```bash
@@ -242,9 +245,13 @@ zamsync sync   ./clinic 127.0.0.1:7000 $(cat ./hub/.node_id)
 zamsync info ./hub
 ```
 ```
-Node ID : b7e9f2a1c4d3...
-Events  : 1
-Peers   : 1  (clinic a3f2c1d8...)
+node_id  : 3001442771
+data_dir : ./hub
+events   : 1
+vv       : node 1482937654 @ seq 1
+wal size : 1 KB
+oldest   : 2026-06-17
+newest   : 2026-06-17
 ```
 
 ---

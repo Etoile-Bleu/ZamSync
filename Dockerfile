@@ -14,6 +14,10 @@
 # ── Stage 1: build ───────────────────────────────────────────────────────────
 FROM --platform=$TARGETPLATFORM rust:1-slim-bookworm AS builder
 
+# Retry failed crate downloads (transient crates.io network errors in CI).
+ENV CARGO_NET_RETRY=10 \
+    CARGO_HTTP_TIMEOUT=300
+
 WORKDIR /src
 
 # Fetch dependencies in a separate layer so rebuilds are fast when only

@@ -1,4 +1,8 @@
 FROM rust:1-slim-bookworm AS builder
+
+ENV CARGO_NET_RETRY=10 \
+    CARGO_HTTP_TIMEOUT=300
+
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates/zamsync-core/Cargo.toml     crates/zamsync-core/Cargo.toml

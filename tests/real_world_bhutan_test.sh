@@ -180,7 +180,84 @@ fi
 LATENCY_STATUS="${GREEN}GOOD (600ms simulated)${NC}"
 BANDWIDTH_STATUS="${GREEN}GOOD (30KB/s simulated)${NC}"
 
-# Beautiful color metrics printout
+if [ "$SERVER_EVENTS" -ne 5000 ] || [ "$CLIENT_EVENTS" -ne 5000 ]; then
+  echo -e "${RED}[CRITICAL ERROR]${NC} Database sync verification failed!"
+  exit 1
+fi
+
+# 12. Phase 19: Event retention and snapshot (tested on client data -- server is still running)
+echo -e "${BLUE}======================================================================${NC}"
+echo -e "${BOLD} Phase 19: Event Retention and Snapshot${NC}"
+echo -e "${BLUE}======================================================================${NC}"
+
+# 12a. info must show wal size and date fields
+INFO_OUT=$(zamsync info /data)
+if ! echo "$INFO_OUT" | grep -q "wal size"; then
+  echo -e "${RED}[CRITICAL]${NC} 'zamsync info' missing 'wal size' field"
+  exit 1
+fi
+if ! echo "$INFO_OUT" | grep -q "oldest"; then
+  echo -e "${RED}[CRITICAL]${NC} 'zamsync info' missing 'oldest' field"
+  exit 1
+fi
+if ! echo "$INFO_OUT" | grep -q "newest"; then
+  echo -e "${RED}[CRITICAL]${NC} 'zamsync info' missing 'newest' field"
+  exit 1
+fi
+echo -e "${GREEN}[GOOD]${NC} Phase 19: zamsync info shows wal size, oldest, newest"
+
+# 12b. expire --dry-run with a date in the past: all events are recent, none qualify
+DRY_PAST=$(zamsync expire /data --before 2020-01-01 --dry-run)
+WOULD_DROP_PAST=$(echo "$DRY_PAST" | awk '/dry-run/{print $3}')
+if [ "${WOULD_DROP_PAST:-1}" -ne 0 ]; then
+  echo -e "${RED}[CRITICAL]${NC} expire --before 2020-01-01 --dry-run: expected 0, got ${WOULD_DROP_PAST}"
+  exit 1
+fi
+echo -e "${GREEN}[GOOD]${NC} Phase 19: expire --dry-run (past date) reports 0 events to drop"
+
+# 12c. expire --dry-run with a far-future date: all 5000 events qualify
+DRY_FUTURE=$(zamsync expire /data --before 2099-01-01 --dry-run)
+WOULD_DROP_FUTURE=$(echo "$DRY_FUTURE" | awk '/dry-run/{print $3}')
+if [ "${WOULD_DROP_FUTURE:-0}" -ne 5000 ]; then
+  echo -e "${RED}[CRITICAL]${NC} expire --before 2099-01-01 --dry-run: expected 5000, got ${WOULD_DROP_FUTURE}"
+  exit 1
+fi
+echo -e "${GREEN}[GOOD]${NC} Phase 19: expire --dry-run (future date) reports 5000 events to drop"
+
+# 12d. snapshot creates a file with the same byte count as the WAL
+WAL_SIZE_BEFORE=$(stat -c%s /data/events.wal 2>/dev/null || echo 0)
+zamsync snapshot /data --output /tmp/client_snapshot.wal
+if [ ! -f /tmp/client_snapshot.wal ]; then
+  echo -e "${RED}[CRITICAL]${NC} snapshot file not created"
+  exit 1
+fi
+SNAP_SIZE=$(stat -c%s /tmp/client_snapshot.wal)
+if [ "$SNAP_SIZE" -ne "$WAL_SIZE_BEFORE" ]; then
+  echo -e "${RED}[CRITICAL]${NC} snapshot size (${SNAP_SIZE}B) != WAL size (${WAL_SIZE_BEFORE}B)"
+  exit 1
+fi
+echo -e "${GREEN}[GOOD]${NC} Phase 19: snapshot created (${SNAP_SIZE} bytes)"
+
+# 12e. expire --min-keep 500: all events are "old" relative to 2099, keep 500 most recent
+zamsync expire /data --before 2099-01-01 --min-keep 500
+EVENTS_AFTER_EXPIRE=$(zamsync info /data | awk '/^events/{print $3}')
+if [ "${EVENTS_AFTER_EXPIRE:-0}" -ne 500 ]; then
+  echo -e "${RED}[CRITICAL]${NC} After expire --min-keep 500: expected 500 events, got ${EVENTS_AFTER_EXPIRE}"
+  exit 1
+fi
+echo -e "${GREEN}[GOOD]${NC} Phase 19: expire --min-keep 500 kept 500 events, dropped 4500"
+
+# 12f. WAL writer must still work after an expire rewrite
+zamsync submit /data "post-expire-health-check" > /dev/null
+EVENTS_AFTER_SUBMIT=$(zamsync info /data | awk '/^events/{print $3}')
+if [ "${EVENTS_AFTER_SUBMIT:-0}" -ne 501 ]; then
+  echo -e "${RED}[CRITICAL]${NC} Post-expire submit: expected 501 events, got ${EVENTS_AFTER_SUBMIT}"
+  exit 1
+fi
+echo -e "${GREEN}[GOOD]${NC} Phase 19: WAL writer functional after expire (501 events)"
+
+RETENTION_STATUS="${GREEN}PERFECT${NC}"
+
 echo -e ""
 echo -e "${BLUE}======================================================================${NC}"
 echo -e "${BOLD}                     ZAMSYNC RESILIENCE METRICS                       ${NC}"
@@ -191,12 +268,8 @@ echo -e " * Disruption Handling:   [$DISRUPTION_STATUS]"
 echo -e " * Reconnection Recovery: [$RECOVERY_STATUS]"
 echo -e " * Event Sync Status:     Client ($CLIENT_EVENTS/5000) -> Server ($SERVER_EVENTS/5000)"
 echo -e " * Data Integrity Check:  [$INTEGRITY_STATUS]"
+echo -e " * Retention (Phase 19):  [$RETENTION_STATUS]"
 echo -e "${BLUE}======================================================================${NC}"
-
-if [ "$SERVER_EVENTS" -ne 5000 ] || [ "$CLIENT_EVENTS" -ne 5000 ]; then
-  echo -e "${RED}[CRITICAL ERROR]${NC} Database sync verification failed!"
-  exit 1
-fi
 
 echo -e "${GREEN}[SUCCESS]${NC} E2E network resilience test passed successfully!"
 echo -e "All 5000 events synchronized correctly with zero loss or duplication."

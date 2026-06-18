@@ -223,6 +223,36 @@ run_scenario() {
 
   ok "[$MODE] Hub: ~$HUB_EVENTS / $TOTAL_EXPECTED events"
   ok "[$MODE] Serving: $SERVING_MODE | sync_wall=${SYNC_WALL_S}s | sum_sync=${SUM_SYNC}s | wall=${WALL_TOTAL}s"
+
+  # Phase 19: retention smoke check on clinic-1 data (not concurrently served -- safe to run)
+  step "[$MODE] Phase 19: retention smoke check"
+  local cli_dir="$WORK/clinic-1"
+  if [ -f "$cli_dir/events.wal" ]; then
+    # All events were submitted moments ago -- nothing should be older than 2020-01-01
+    local dry_out dry_count
+    dry_out=$(zamsync expire "$cli_dir" --before 2020-01-01 --dry-run 2>&1)
+    dry_count=$(echo "$dry_out" | awk '/dry-run/{print $3}')
+    if [ "${dry_count:-1}" -ne 0 ]; then
+      err "[$MODE] Phase 19: expire --before 2020-01-01 --dry-run should be 0, got ${dry_count}"
+      return 1
+    fi
+    ok "[$MODE] Phase 19: expire dry-run (past date) = 0 -- all events recent"
+
+    # Snapshot must produce a file of the same size as the WAL
+    local snap_path="/tmp/${MODE}-clinic1-snap.wal"
+    local wal_sz snap_sz
+    wal_sz=$(stat -c%s "$cli_dir/events.wal" 2>/dev/null || echo 0)
+    zamsync snapshot "$cli_dir" --output "$snap_path" > /dev/null
+    snap_sz=$(stat -c%s "$snap_path" 2>/dev/null || echo 0)
+    if [ "$snap_sz" -ne "$wal_sz" ]; then
+      err "[$MODE] Phase 19: snapshot size (${snap_sz}) != WAL size (${wal_sz})"
+      return 1
+    fi
+    ok "[$MODE] Phase 19: snapshot matches WAL (${snap_sz} bytes)"
+  else
+    ok "[$MODE] Phase 19: WAL not present (clinic-1 failed sync earlier, skip)"
+  fi
+
   return $FAILED
 }
 
