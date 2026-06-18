@@ -494,10 +494,15 @@ curl http://localhost:9090/metrics
 | Metric | Type | Description |
 |---|---|---|
 | `zamsync_events_submitted_total` | Counter | Events appended to local WAL |
-| `zamsync_events_sent_total` | Counter | Events sent to a peer |
-| `zamsync_events_received_total` | Counter | Events received from a peer |
-| `zamsync_sync_duration_seconds` | Summary | Full sync session duration (quantiles: p50, p90, p99) |
-| `zamsync_vv_drift` | Gauge | Version Vector gap vs peer |
+| `zamsync_sync_events_sent_total` | Counter | Events sent to a peer during sync |
+| `zamsync_sync_events_received_total` | Counter | Events received from a peer during sync |
+| `zamsync_bytes_sent_total` | Counter | Wire bytes sent per peer session |
+| `zamsync_sync_duration_seconds` | Histogram | Full sync session duration (quantiles: p50, p90, p99) |
+| `zamsync_vv_drift_events` | Gauge | Version Vector gap vs peer (events behind) |
+| `zamsync_wal_size_bytes` | Gauge | Current WAL file size in bytes |
+| `zamsync_events_expired_total` | Counter | Events removed by retention policy (`expire` / `--retain`) |
+| `zamsync_wal_oldest_event_timestamp_seconds` | Gauge | HLC wall-clock of the oldest surviving event (Unix seconds) |
+| `zamsync_budget_exhausted_total` | Counter | Sessions ended early due to `--max-bytes` cap |
 
 ---
 

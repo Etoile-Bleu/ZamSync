@@ -262,7 +262,7 @@ the WAL on a schedule so storage does not grow unboundedly.
 - [x] **Tombstone preservation**: tombstone records (empty payload) are always preserved through the WAL rewrite so compaction markers survive retention runs
 - [x] **Snapshot export**: `zamsync snapshot <data-dir> --output snapshot.bin` exports the current WAL as a self-contained bootstrap file; a new node can initialize from the snapshot instead of syncing all history
 - [x] **Retention report**: `zamsync info` shows `wal size`, `oldest` event date, and `newest` event date (projected full-disk rate deferred to Phase 20)
-- [ ] **Retention observability metrics**: expose WAL state and expiry activity in Prometheus -- `zamsync_wal_size_bytes` (gauge, current WAL file size), `zamsync_events_expired_total` (counter, incremented on each `expire_before` call), `zamsync_wal_oldest_event_timestamp` (gauge, Unix ms of oldest event); allows Grafana dashboards to alert before a hub runs out of SD-card space
+- [x] **Retention observability metrics**: `zamsync_wal_size_bytes` (gauge, updated after each sync session and after each expire run), `zamsync_events_expired_total` (counter, incremented on each `expire_before` call), `zamsync_wal_oldest_event_timestamp_seconds` (gauge, Unix seconds of oldest surviving event); `EventStore::byte_size()` default trait method avoids coupling the sync session to WAL internals
 
 ## Phase 20: Embedded Status Dashboard
 

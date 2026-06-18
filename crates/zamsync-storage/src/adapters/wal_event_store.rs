@@ -1,5 +1,6 @@
 use crate::encryption::EncryptionKey;
 use crate::wal::{WalScanner, WalWriter};
+use metrics::{counter, gauge};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -191,12 +192,15 @@ impl WalEventStore {
         // Decide what to keep: newer-than-cutoff OR within the last min_keep per node.
         let mut kept: Vec<(SequenceNumber, Vec<u8>)> = Vec::new();
         let mut dropped = 0usize;
+        let mut oldest_phys_ms_kept: Option<u64> = None;
 
         for (_node, records) in by_node {
             let len = records.len();
             let min_keep_start = len.saturating_sub(min_keep);
             for (i, (seq, payload, phys_ms)) in records.into_iter().enumerate() {
                 if phys_ms >= cutoff_ms || i >= min_keep_start {
+                    oldest_phys_ms_kept =
+                        Some(oldest_phys_ms_kept.map_or(phys_ms, |o: u64| o.min(phys_ms)));
                     kept.push((seq, payload));
                 } else {
                     dropped += 1;
@@ -205,6 +209,10 @@ impl WalEventStore {
         }
 
         if dropped == 0 {
+            gauge!("zamsync_wal_size_bytes").set(size_before as f64);
+            if let Some(oldest_ms) = oldest_phys_ms_kept {
+                gauge!("zamsync_wal_oldest_event_timestamp_seconds").set(oldest_ms as f64 / 1000.0);
+            }
             return Ok((0, 0));
         }
 
@@ -253,6 +261,12 @@ impl WalEventStore {
             None => WalWriter::open(&self.path, next_seq)?,
         };
 
+        counter!("zamsync_events_expired_total").increment(dropped as u64);
+        gauge!("zamsync_wal_size_bytes").set(size_after as f64);
+        if let Some(oldest_ms) = oldest_phys_ms_kept {
+            gauge!("zamsync_wal_oldest_event_timestamp_seconds").set(oldest_ms as f64 / 1000.0);
+        }
+
         Ok((dropped, bytes_freed))
     }
 }
@@ -296,6 +310,10 @@ impl EventStore for WalEventStore {
 
     fn sync(&mut self) -> ZamResult<()> {
         self.writer.sync().map_err(Into::into)
+    }
+
+    fn byte_size(&self) -> u64 {
+        std::fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0)
     }
 }
 

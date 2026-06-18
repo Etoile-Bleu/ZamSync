@@ -182,6 +182,12 @@ impl<E: EventStore, P: PeerStore, S: StateStore> ZamEngine<E, P, S> {
         self.event_store.scan()
     }
 
+    /// Current on-disk size of the backing event store in bytes.
+    /// Returns 0 for in-memory implementations.
+    pub fn wal_byte_size(&self) -> u64 {
+        self.event_store.byte_size()
+    }
+
     /// Returns all events in deterministic global order (HLC, NodeId) via LogSorter.
     /// This is the correct order for state projection when events from multiple nodes
     /// are present in the WAL.
