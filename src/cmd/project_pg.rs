@@ -164,7 +164,17 @@ mod tests {
         std::env::var("TEST_PG_URL").ok()
     }
 
-    async fn setup_pool(url: &str) -> PgPool {
+    use std::sync::OnceLock;
+    use tokio::sync::Mutex;
+
+    static TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn test_mutex() -> &'static Mutex<()> {
+        TEST_MUTEX.get_or_init(|| Mutex::new(()))
+    }
+
+    async fn setup_pool(url: &str) -> (PgPool, tokio::sync::MutexGuard<'static, ()>) {
+        let guard = test_mutex().lock().await;
         let pool = PgPoolOptions::new()
             .max_connections(2)
             .connect(url)
@@ -175,7 +185,7 @@ mod tests {
             .await
             .unwrap();
         init_schema(&pool).await.unwrap();
-        pool
+        (pool, guard)
     }
 
     fn sample_events() -> Vec<Event> {
@@ -206,7 +216,7 @@ mod tests {
             .build()
             .unwrap();
         rt.block_on(async {
-            let pool = setup_pool(&url).await;
+            let (pool, _guard) = setup_pool(&url).await;
             // setup_pool already called init_schema once; call again to verify idempotency
             init_schema(&pool).await.unwrap();
 
@@ -228,7 +238,7 @@ mod tests {
             .build()
             .unwrap();
         rt.block_on(async {
-            let pool = setup_pool(&url).await;
+            let (pool, _guard) = setup_pool(&url).await;
 
             let events = sample_events();
 
