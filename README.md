@@ -459,6 +459,28 @@ curl -N http://localhost:8080/events/stream
 | `/submit` | `POST` | Append an event (JSON body: `event_type`, `payload`) |
 | `/events` | `GET` | Fetch events; `?since=<seq>` filters to newer events |
 | `/events/stream` | `GET` | SSE stream -- new events pushed as they arrive |
+| `/ui` | `GET` | Browser status dashboard |
+| `/ui/data` | `GET` | Dashboard stats as JSON |
+
+### Error responses
+
+All errors return JSON with a stable machine-readable code:
+
+```json
+{
+  "error": "SCHEMA_VIOLATION",
+  "message": "missing required field: patient_id"
+}
+```
+
+| Code | HTTP | When |
+|------|------|------|
+| `INVALID_JSON` | 400 | Request body is not valid JSON or `Content-Type` is missing |
+| `SCHEMA_VIOLATION` | 422 | Payload fails the `--schema` validation rule |
+| `WAL_UNAVAILABLE` | 503 | WAL file unavailable (disk full, corrupt, permissions) |
+| `INTERNAL_ERROR` | 500 | Unexpected internal error |
+
+Full reference: [etoile-bleu.github.io/ZamSync/error-codes.html](https://etoile-bleu.github.io/ZamSync/error-codes.html)
 
 The HTTP server runs in a dedicated OS thread and opens a fresh engine per request -- no shared mutable state, same pattern as the CLI.
 

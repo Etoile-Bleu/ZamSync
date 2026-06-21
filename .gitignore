@@ -1,6 +1,7 @@
 /target
 .claude/
 /bench_data/
+/docs/book
 /tests/*.log
 /tests/results/
 /report.html

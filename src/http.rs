@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::{
-    extract::{Query, State},
+    extract::{rejection::JsonRejection, Query, State},
     http::{header, StatusCode},
     response::{
         sse::{Event as SseEvent, KeepAlive, Sse},
@@ -15,7 +15,7 @@ use axum::{
 };
 use futures::{Stream, StreamExt as _};
 use serde::{Deserialize, Serialize};
-use zamsync_core::{ports::StateStore, Event, NodeId, SequenceNumber};
+use zamsync_core::{ports::StateStore, Event, NodeId, SequenceNumber, ZamError};
 use zamsync_storage::{EncryptionKey, PayloadSchema, ZamEngine};
 
 use crate::util::{format_date, open_engine};
@@ -165,6 +165,84 @@ impl StateStore for DashState {
 }
 
 // ---------------------------------------------------------------------------
+// Error types
+// ---------------------------------------------------------------------------
+
+/// Typed HTTP API errors with stable machine-readable codes.
+///
+/// Codes are additive -- new codes may be added; existing codes are never renamed.
+#[derive(Debug)]
+enum AppError {
+    /// 400 -- request body is not valid JSON or Content-Type is missing.
+    InvalidJson(String),
+    /// 422 -- body is valid JSON but fails the configured --schema validation.
+    SchemaViolation(String),
+    /// 503 -- WAL file unavailable (disk full, corrupt, permission error).
+    Unavailable(String),
+    /// 500 -- unexpected internal error.
+    Internal(String),
+}
+
+#[derive(Serialize)]
+struct ErrorBody {
+    error: &'static str,
+    message: String,
+}
+
+impl AppError {
+    fn status(&self) -> StatusCode {
+        match self {
+            Self::InvalidJson(_) => StatusCode::BAD_REQUEST,
+            Self::SchemaViolation(_) => StatusCode::UNPROCESSABLE_ENTITY,
+            Self::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
+            Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+
+    fn code(&self) -> &'static str {
+        match self {
+            Self::InvalidJson(_) => "INVALID_JSON",
+            Self::SchemaViolation(_) => "SCHEMA_VIOLATION",
+            Self::Unavailable(_) => "WAL_UNAVAILABLE",
+            Self::Internal(_) => "INTERNAL_ERROR",
+        }
+    }
+
+    fn message(&self) -> &str {
+        match self {
+            Self::InvalidJson(m)
+            | Self::SchemaViolation(m)
+            | Self::Unavailable(m)
+            | Self::Internal(m) => m,
+        }
+    }
+}
+
+impl IntoResponse for AppError {
+    fn into_response(self) -> Response {
+        (
+            self.status(),
+            Json(ErrorBody {
+                error: self.code(),
+                message: self.message().to_owned(),
+            }),
+        )
+            .into_response()
+    }
+}
+
+fn zam_to_app(e: ZamError) -> AppError {
+    let msg = e.to_string();
+    match e {
+        ZamError::Validation(m) => AppError::SchemaViolation(m),
+        ZamError::Io(_) | ZamError::Corruption(_) | ZamError::Storage(_) => {
+            AppError::Unavailable(msg)
+        }
+        _ => AppError::Internal(msg),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -203,14 +281,6 @@ fn base64_encode(data: &[u8]) -> String {
     out
 }
 
-struct AppError(String);
-
-impl IntoResponse for AppError {
-    fn into_response(self) -> axum::response::Response {
-        (StatusCode::INTERNAL_SERVER_ERROR, self.0).into_response()
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -236,27 +306,30 @@ async fn health(State(s): State<Arc<HttpState>>) -> Json<HealthResponse> {
 
 async fn submit(
     State(s): State<Arc<HttpState>>,
-    Json(body): Json<SubmitRequest>,
+    body: Result<Json<SubmitRequest>, JsonRejection>,
 ) -> Result<Json<SubmitResponse>, AppError> {
-    let payload_bytes = serde_json::to_vec(&body.payload).map_err(|e| AppError(e.to_string()))?;
+    let Json(body) = body.map_err(|e| AppError::InvalidJson(e.to_string()))?;
+    let payload_bytes =
+        serde_json::to_vec(&body.payload).map_err(|e| AppError::Internal(e.to_string()))?;
     let event_type = body.event_type;
     let node_id = s.node_id;
 
     let seq = tokio::task::spawn_blocking({
         let s = s.clone();
-        move || -> Result<SequenceNumber, String> {
+        move || -> Result<SequenceNumber, AppError> {
             let mut engine = open_engine(&s.data_dir, s.node_id, s.enc_key(), s.schema.clone())
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| AppError::Unavailable(e.to_string()))?;
             let seq = engine
                 .submit(event_type, payload_bytes)
-                .map_err(|e| e.to_string())?;
-            engine.sync().map_err(|e| e.to_string())?;
+                .map_err(zam_to_app)?;
+            engine
+                .sync()
+                .map_err(|e| AppError::Unavailable(e.to_string()))?;
             Ok(seq)
         }
     })
     .await
-    .map_err(|e| AppError(e.to_string()))?
-    .map_err(AppError)?;
+    .map_err(|e| AppError::Internal(e.to_string()))??;
 
     Ok(Json(SubmitResponse {
         seq: seq.0,
@@ -272,12 +345,12 @@ async fn events(
 
     let evts = tokio::task::spawn_blocking({
         let s = s.clone();
-        move || -> Result<Vec<EventJson>, String> {
+        move || -> Result<Vec<EventJson>, AppError> {
             let engine = open_engine(&s.data_dir, s.node_id, s.enc_key(), PayloadSchema::None)
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| AppError::Unavailable(e.to_string()))?;
             let evts = engine
                 .scan_events()
-                .map_err(|e| e.to_string())?
+                .map_err(|e| AppError::Unavailable(e.to_string()))?
                 .filter_map(|r| r.ok())
                 .filter(|e| e.seq.0 >= since)
                 .map(|e| to_event_json(&e))
@@ -286,8 +359,7 @@ async fn events(
         }
     })
     .await
-    .map_err(|e| AppError(e.to_string()))?
-    .map_err(AppError)?;
+    .map_err(|e| AppError::Internal(e.to_string()))??;
 
     Ok(Json(evts))
 }
@@ -371,7 +443,7 @@ async fn ui_data(State(s): State<Arc<HttpState>>) -> Result<Json<UiData>, AppErr
 
     let (events, wal_size_bytes, oldest_ms, newest_ms) = tokio::task::spawn_blocking({
         let s = s.clone();
-        move || -> Result<(usize, u64, Option<u64>, Option<u64>), String> {
+        move || -> Result<(usize, u64, Option<u64>, Option<u64>), AppError> {
             let engine: zamsync_storage::ZamEngine<
                 zamsync_storage::WalEventStore,
                 zamsync_storage::FilePeerStore,
@@ -383,9 +455,9 @@ async fn ui_data(State(s): State<Arc<HttpState>>) -> Result<Json<UiData>, AppErr
                     DashState::default(),
                     EncryptionKey::from_bytes(key),
                 )
-                .map_err(|e| e.to_string())?,
+                .map_err(|e| AppError::Unavailable(e.to_string()))?,
                 None => ZamEngine::open_wal(&*s.data_dir, s.node_id, DashState::default())
-                    .map_err(|e| e.to_string())?,
+                    .map_err(|e| AppError::Unavailable(e.to_string()))?,
             };
             let st = engine.state();
             let wal_size = engine.wal_byte_size();
@@ -393,8 +465,7 @@ async fn ui_data(State(s): State<Arc<HttpState>>) -> Result<Json<UiData>, AppErr
         }
     })
     .await
-    .map_err(|e| AppError(e.to_string()))?
-    .map_err(AppError)?;
+    .map_err(|e| AppError::Internal(e.to_string()))??;
 
     Ok(Json(UiData {
         node_id,
@@ -427,6 +498,8 @@ mod tests {
         });
         (state, dir) // return dir so it stays alive for the test
     }
+
+    // ---- Dashboard tests ----
 
     #[tokio::test]
     async fn ui_returns_html_200() {
@@ -548,5 +621,161 @@ mod tests {
             .unwrap();
         let data: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(data["status"].as_str().unwrap(), "ok");
+    }
+
+    // ---- Error code tests ----
+
+    #[tokio::test]
+    async fn submit_invalid_json_returns_400() {
+        let (state, _dir) = make_state();
+        let app = build_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/submit")
+                    .header("content-type", "application/json")
+                    .body(Body::from("not json!!!"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = axum::body::to_bytes(resp.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let data: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(data["error"].as_str().unwrap(), "INVALID_JSON");
+        assert!(data["message"].is_string());
+    }
+
+    #[tokio::test]
+    async fn submit_missing_content_type_returns_400() {
+        let (state, _dir) = make_state();
+        let app = build_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/submit")
+                    .body(Body::from(r#"{"payload":{}}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = axum::body::to_bytes(resp.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let data: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(data["error"].as_str().unwrap(), "INVALID_JSON");
+    }
+
+    #[tokio::test]
+    async fn submit_schema_violation_returns_422() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = Arc::new(HttpState {
+            data_dir: Arc::new(dir.path().to_path_buf()),
+            raw_key: None,
+            node_id: NodeId(1),
+            schema: PayloadSchema::JsonRequired(vec!["patient_id".to_string()]),
+            started_at: Instant::now(),
+        });
+        let app = build_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/submit")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"payload":{"name":"John"}}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let body = axum::body::to_bytes(resp.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let data: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(data["error"].as_str().unwrap(), "SCHEMA_VIOLATION");
+        assert!(
+            data["message"].as_str().unwrap().contains("patient_id"),
+            "message should mention the missing field, got: {}",
+            data["message"]
+        );
+    }
+
+    #[tokio::test]
+    async fn submit_valid_payload_returns_200() {
+        let (state, _dir) = make_state();
+        let app = build_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/submit")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"payload":{"x":1}}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let data: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(data["seq"].is_number());
+        assert!(data["node_id"].is_string());
+    }
+
+    #[tokio::test]
+    async fn error_response_always_has_error_and_message_fields() {
+        let (state, _dir) = make_state();
+        let app = build_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/submit")
+                    .header("content-type", "application/json")
+                    .body(Body::from("{bad}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let data: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(data["error"].is_string(), "error field must be present");
+        assert!(data["message"].is_string(), "message field must be present");
+    }
+
+    #[tokio::test]
+    async fn submit_with_all_fields_returns_200() {
+        let (state, _dir) = make_state();
+        let app = build_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/submit")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"event_type":2,"payload":{"patient_id":"P-999","type":"discharge"}}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let data: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(data["seq"].is_number(), "seq must be present");
+        assert!(data["node_id"].is_string(), "node_id must be present");
     }
 }

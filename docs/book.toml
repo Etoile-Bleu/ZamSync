@@ -1,0 +1,12 @@
+[book]
+title = "ZamSync"
+description = "Offline-first WAL sync engine for low-bandwidth environments"
+language = "en"
+src = "src"
+authors = ["Etoile-Bleu"]
+
+[output.html]
+site-url = "/ZamSync/"
+default-theme = "ayu"
+preferred-dark-theme = "ayu"
+git-repository-url = "https://github.com/Etoile-Bleu/ZamSync"
