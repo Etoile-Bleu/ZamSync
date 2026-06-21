@@ -80,15 +80,35 @@ fn resolve_db_path(
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
     match flag_value(args, "--target") {
         None => Ok(data_dir.join("projection.db")),
-        Some(url) if url.starts_with("sqlite://") => {
-            Ok(PathBuf::from(url.trim_start_matches("sqlite://")))
-        }
+        Some(url) if url.starts_with("sqlite://") => Ok(sqlite_url_path(url)),
         Some(url) if url.starts_with("postgres://") || url.starts_with("postgresql://") => Err(
             "PostgreSQL target not yet supported; use --target sqlite://path or omit for default"
                 .into(),
         ),
         Some(path) => Ok(PathBuf::from(path)),
     }
+}
+
+fn sqlite_url_path(url: &str) -> PathBuf {
+    let path = url.trim_start_matches("sqlite://");
+    PathBuf::from(normalize_sqlite_url_path(path))
+}
+
+fn normalize_sqlite_url_path(path: &str) -> &str {
+    #[cfg(windows)]
+    {
+        if is_windows_drive_path_with_leading_slash(path) {
+            return &path[1..];
+        }
+    }
+
+    path
+}
+
+#[cfg(windows)]
+fn is_windows_drive_path_with_leading_slash(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes.len() >= 3 && bytes[0] == b'/' && bytes[1].is_ascii_alphabetic() && bytes[2] == b':'
 }
 
 fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
@@ -217,6 +237,22 @@ mod tests {
         let args = vec!["--target".to_string(), "sqlite:///tmp/test.db".to_string()];
         let path = resolve_db_path(&args, dir.path()).unwrap();
         assert_eq!(path, PathBuf::from("/tmp/test.db"));
+    }
+
+    #[test]
+    fn test_resolve_db_path_sqlite_windows_drive_url() {
+        let dir = tempdir().unwrap();
+        let args = vec![
+            "--target".to_string(),
+            "sqlite:///C:/Users/test/data.db".to_string(),
+        ];
+        let path = resolve_db_path(&args, dir.path()).unwrap();
+
+        if cfg!(windows) {
+            assert_eq!(path, PathBuf::from("C:/Users/test/data.db"));
+        } else {
+            assert_eq!(path, PathBuf::from("/C:/Users/test/data.db"));
+        }
     }
 
     #[test]
