@@ -6,6 +6,7 @@ pub(crate) mod expire;
 mod info;
 mod keygen;
 mod project;
+mod project_pg;
 mod rekey;
 mod serve;
 mod sign;

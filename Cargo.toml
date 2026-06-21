@@ -51,6 +51,8 @@ futures = "0.3"
 serde.workspace = true
 serde_json.workspace = true
 rusqlite = { version = "0.33", features = ["bundled"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres"] }
+url = "2"
 tempfile.workspace = true
 
 [dev-dependencies]

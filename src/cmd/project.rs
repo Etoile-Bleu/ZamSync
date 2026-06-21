@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use zamsync_core::Event;
 use zamsync_storage::PayloadSchema;
 
+use super::project_pg;
+
 pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let dir = data_dir(args, 2)?;
     let enc_key = load_encryption_key(args)?;
@@ -12,33 +14,25 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|v| v.parse().ok())
         .unwrap_or(100);
 
-    let db_path = resolve_db_path(args, &dir)?;
+    let target = flag_value(args, "--target");
+    let is_pg =
+        matches!(target, Some(u) if u.starts_with("postgres://") || u.starts_with("postgresql://"));
 
-    if dry_run {
-        eprintln!("[dry-run] would project to {}", db_path.display());
-    } else {
-        println!("projecting to {}", db_path.display());
+    if is_pg && dry_run {
+        eprintln!("[dry-run] would project to {}", target.unwrap());
     }
 
     let node_id = node_id_from_dir(&dir);
     let engine = open_engine(&dir, node_id, enc_key, PayloadSchema::None)?;
 
-    let mut conn = if !dry_run {
-        let c = Connection::open(&db_path)?;
-        init_schema(&c)?;
-        Some(c)
-    } else {
-        None
-    };
-
-    let mut projected = 0usize;
-    let mut skipped = 0usize;
-    let mut batch: Vec<Event> = Vec::with_capacity(batch_size);
-
-    for result in engine.sorted_scan()? {
-        let event = result?;
-
-        if dry_run {
+    if dry_run {
+        if !is_pg {
+            let db_path = resolve_db_path(args, &dir)?;
+            eprintln!("[dry-run] would project to {}", db_path.display());
+        }
+        let mut projected = 0usize;
+        for result in engine.sorted_scan()? {
+            let event = result?;
             println!(
                 "node={} seq={} type={} size={}B hlc={}",
                 event.origin_node.0,
@@ -48,28 +42,48 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 event.hlc.physical,
             );
             projected += 1;
-            continue;
         }
+        println!("{projected} events would be projected");
+        return Ok(());
+    }
 
+    if is_pg {
+        let url = target.unwrap();
+        println!("projecting to {url}");
+        let scan = engine.sorted_scan()?;
+        let iter = scan
+            .into_iter()
+            .map(|r| r.map_err(|e| -> Box<dyn std::error::Error> { e.into() }));
+        return project_pg::run(url, iter, batch_size);
+    }
+
+    let db_path = resolve_db_path(args, &dir)?;
+    println!("projecting to {}", db_path.display());
+
+    let mut conn = Connection::open(&db_path)?;
+    init_schema(&conn)?;
+
+    let mut projected = 0usize;
+    let mut skipped = 0usize;
+    let mut batch: Vec<Event> = Vec::with_capacity(batch_size);
+
+    for result in engine.sorted_scan()? {
+        let event = result?;
         batch.push(event);
         if batch.len() >= batch_size {
-            let (p, s) = flush_batch(conn.as_mut().unwrap(), &batch)?;
+            let (p, s) = flush_batch(&mut conn, &batch)?;
             projected += p;
             skipped += s;
             batch.clear();
         }
     }
 
-    if !dry_run {
-        if !batch.is_empty() {
-            let (p, s) = flush_batch(conn.as_mut().unwrap(), &batch)?;
-            projected += p;
-            skipped += s;
-        }
-        println!("{projected} projected, {skipped} already present");
-    } else {
-        println!("{projected} events would be projected");
+    if !batch.is_empty() {
+        let (p, s) = flush_batch(&mut conn, &batch)?;
+        projected += p;
+        skipped += s;
     }
+    println!("{projected} projected, {skipped} already present");
 
     Ok(())
 }
@@ -81,10 +95,6 @@ fn resolve_db_path(
     match flag_value(args, "--target") {
         None => Ok(data_dir.join("projection.db")),
         Some(url) if url.starts_with("sqlite://") => Ok(sqlite_url_path(url)),
-        Some(url) if url.starts_with("postgres://") || url.starts_with("postgresql://") => Err(
-            "PostgreSQL target not yet supported; use --target sqlite://path or omit for default"
-                .into(),
-        ),
         Some(path) => Ok(PathBuf::from(path)),
     }
 }
@@ -258,10 +268,8 @@ mod tests {
     #[test]
     fn test_resolve_db_path_postgres_errors() {
         let dir = tempdir().unwrap();
-        let args = vec![
-            "--target".to_string(),
-            "postgres://localhost/db".to_string(),
-        ];
-        assert!(resolve_db_path(&args, dir.path()).is_err());
+        let args = vec!["--target".to_string(), "/tmp/custom.db".to_string()];
+        let path = resolve_db_path(&args, dir.path()).unwrap();
+        assert_eq!(path, PathBuf::from("/tmp/custom.db"));
     }
 }

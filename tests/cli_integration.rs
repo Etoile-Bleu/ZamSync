@@ -205,6 +205,64 @@ fn test_project_dry_run_no_file_created() {
     );
 }
 
+// ---- project (PostgreSQL) ----------------------------------------------------
+
+#[test]
+#[ignore]
+fn test_project_pg_is_idempotent() {
+    let pg_url = match std::env::var("TEST_PG_URL") {
+        Ok(u) => u,
+        Err(_) => {
+            eprintln!("TEST_PG_URL not set – skipping PostgreSQL projection test");
+            return;
+        }
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let bin = bin();
+    let dir_s = dir.path().to_str().unwrap();
+
+    // Submit 3 events
+    for i in 0..3u32 {
+        Command::new(&bin)
+            .args(["submit", dir_s, &format!("pg-record-{i}")])
+            .output()
+            .unwrap();
+    }
+
+    // First project run: should insert all 3
+    let out = Command::new(&bin)
+        .args(["project", dir_s, "--target", &pg_url])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "project --target postgres failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("3 projected"),
+        "expected '3 projected' in output: {stdout}"
+    );
+    assert!(
+        stdout.contains("0 already present"),
+        "expected '0 already present' in output: {stdout}"
+    );
+
+    // Second run: all 3 already present, 0 newly projected
+    let out2 = Command::new(&bin)
+        .args(["project", dir_s, "--target", &pg_url])
+        .output()
+        .unwrap();
+    assert!(out2.status.success());
+    let stdout2 = String::from_utf8_lossy(&out2.stdout);
+    assert!(
+        stdout2.contains("0 projected") && stdout2.contains("3 already present"),
+        "second run should skip all: {stdout2}"
+    );
+}
+
 // ---- serve + sync ------------------------------------------------------------
 
 /// Start hub on port 0 (OS picks the port), parse the actual address from
