@@ -3,12 +3,12 @@ use std::path::Path;
 use crate::cmd;
 
 pub fn setup(args: &[String]) -> Result<(), String> {
-    // ✅ Validate arguments
+    // Validate arguments
     if args.len() < 4 {
         return Err("Usage: zamsync setup --hub <data-dir> [--bind <addr>]".to_string());
     }
 
-    // ✅ Ensure correct flag
+    // Ensure correct flag
     let flag = &args[2];
     if flag != "--hub" {
         return Err("Only --hub mode is supported".to_string());
@@ -17,10 +17,10 @@ pub fn setup(args: &[String]) -> Result<(), String> {
     let data_dir = &args[3];
     let path = Path::new(data_dir);
 
-    // ✅ Default bind address
+    // Default bind address
     let mut bind_addr = "0.0.0.0:5000".to_string();
 
-    // ✅ Robust flag parsing
+    // Robust flag parsing
     if let Some(pos) = args.iter().position(|x| x == "--bind") {
         if let Some(val) = args.get(pos + 1) {
             bind_addr = val.clone();
@@ -31,7 +31,7 @@ pub fn setup(args: &[String]) -> Result<(), String> {
 
     println!("Setting up hub in directory: {}", data_dir);
 
-    // ✅ Create directory if it doesn't exist
+    // Create directory if it doesn't exist
     if !path.exists() {
         fs::create_dir_all(path)
             .map_err(|e| format!("Failed to create directory: {}", e))?;
@@ -39,13 +39,13 @@ pub fn setup(args: &[String]) -> Result<(), String> {
 
     println!("[ok] directory ready");
 
-    // ✅ Prevent overwrite (check TLS location used by keygen)
+    // Prevent overwrite
     let tls_dir = path.join("tls");
     if tls_dir.join("node.key").exists() {
         return Err("Error: node.key already exists. Aborting.".to_string());
     }
 
-    // ✅ Call existing keygen logic
+    // Call existing keygen logic
     let keygen_args = vec![
         args[0].clone(),
         "keygen".to_string(),
@@ -57,7 +57,7 @@ pub fn setup(args: &[String]) -> Result<(), String> {
 
     println!("[ok] keys generated");
 
-    // ✅ Generate systemd unit file
+    // Generate systemd unit file
     let service_content = format!(
         r#"[Unit]
 Description=ZamSync Hub Node
@@ -81,7 +81,7 @@ WantedBy=multi-user.target
 
     println!("[ok] systemd unit created -> {}", service_path.display());
 
-    // ✅ Final checklist
+    // Final checklist
     println!("\nNext steps:");
     println!("  1. Copy the unit:");
     println!(
@@ -93,7 +93,7 @@ WantedBy=multi-user.target
     println!("  3. For each clinic node:");
     println!("     copy {}/tls/ca.crt", data_dir);
     println!("     zamsync keygen ./clinic-data");
-    println!("     zamsync sign ./clinic-data --ca {}", data_dir);
+    println!("     zamsync sign ./clinic_data --ca {}", data_dir);
     println!("  Bind address: {}", bind_addr);
 
     Ok(())
@@ -105,7 +105,7 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn test_setup_creates_directory() {
+    fn test_setup_creates_service_file() {
         let dir = tempdir().unwrap();
         let path = dir.path().to_str().unwrap().to_string();
 
@@ -120,6 +120,9 @@ mod tests {
 
         assert!(result.is_ok());
         assert!(dir.path().exists());
+
+        //IMPORTANT: verify service file creation
+        assert!(dir.path().join("zamsync-hub.service").exists());
     }
 
     #[test]
