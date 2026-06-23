@@ -60,6 +60,110 @@ fn test_info_empty_dir() {
     );
 }
 
+#[test]
+fn test_info_peer_breakdown() {
+    let hub_dir = tempfile::tempdir().unwrap();
+    let clinic_a_dir = tempfile::tempdir().unwrap();
+    let clinic_b_dir = tempfile::tempdir().unwrap();
+    let bin = bin();
+    let hub_dir_s = hub_dir.path().to_str().unwrap();
+    let clinic_a_s = clinic_a_dir.path().to_str().unwrap();
+    let clinic_b_s = clinic_b_dir.path().to_str().unwrap();
+
+    // Submit events from clinic A
+    for i in 0..3u32 {
+        let out = Command::new(&bin)
+            .args(["submit", clinic_a_s, &format!("a-event-{i}")])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "submit A failed");
+    }
+
+    // Submit events from clinic B
+    for i in 0..2u32 {
+        let out = Command::new(&bin)
+            .args(["submit", clinic_b_s, &format!("b-event-{i}")])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "submit B failed");
+    }
+
+    // Touch hub dir to create .node_id
+    Command::new(&bin)
+        .args(["info", hub_dir_s])
+        .output()
+        .unwrap();
+    let hub_id = read_node_id(hub_dir.path());
+    let clinic_a_id = read_node_id(clinic_a_dir.path());
+    let clinic_b_id = read_node_id(clinic_b_dir.path());
+
+    // Start hub
+    let mut hub = Command::new(&bin)
+        .args(["serve", hub_dir_s, "127.0.0.1:0"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+
+    let hub_stdout = hub.stdout.take().unwrap();
+    let mut reader = BufReader::new(hub_stdout);
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    let bind_addr = line
+        .split("listening on ")
+        .nth(1)
+        .and_then(|s| s.split_whitespace().next())
+        .unwrap_or_else(|| panic!("could not parse bind addr: {line:?}"))
+        .to_string();
+
+    // Sync clinic A -> hub
+    let out = Command::new(&bin)
+        .args(["sync", clinic_a_s, &bind_addr, &hub_id.to_string()])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "sync A failed");
+
+    // Sync clinic B -> hub
+    let out = Command::new(&bin)
+        .args(["sync", clinic_b_s, &bind_addr, &hub_id.to_string()])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "sync B failed");
+
+    hub.kill().ok();
+    hub.wait().ok();
+
+    // Run info on the hub and check peer breakdown
+    let info = Command::new(&bin)
+        .args(["info", hub_dir_s])
+        .output()
+        .unwrap();
+    assert!(info.status.success());
+    let stdout = String::from_utf8_lossy(&info.stdout);
+
+    // Total should be 5
+    assert!(
+        stdout.contains("events   : 5"),
+        "hub should hold 5 events: {stdout}"
+    );
+
+    // Both clinic node IDs must appear in peers section
+    assert!(
+        stdout.contains(&format!("node {}", clinic_a_id)) && stdout.contains("3 events"),
+        "clinic A ({clinic_a_id}) should show 3 events in peers: {stdout}"
+    );
+    assert!(
+        stdout.contains(&format!("node {}", clinic_b_id)) && stdout.contains("2 events"),
+        "clinic B ({clinic_b_id}) should show 2 events in peers: {stdout}"
+    );
+
+    // "peers:" header must appear
+    assert!(
+        stdout.contains("peers:"),
+        "peers section header missing: {stdout}"
+    );
+}
+
 // ---- submit ------------------------------------------------------------------
 
 #[test]
