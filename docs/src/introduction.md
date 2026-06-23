@@ -35,6 +35,7 @@ open http://localhost:8080/ui
 
 - [REST API](rest-api.md) -- all endpoints with request/response examples
 - [Error Codes](error-codes.md) -- structured error reference for client developers
+- [ping](cli-ping.md) -- check hub reachability and RTT from the command line
 
 ## Source
 
