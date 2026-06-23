@@ -5,6 +5,7 @@ mod daemon;
 pub(crate) mod expire;
 mod info;
 mod keygen;
+mod ping;
 mod project;
 mod project_pg;
 mod rekey;
@@ -21,6 +22,7 @@ pub use daemon::run as daemon;
 pub use expire::run as expire;
 pub use info::run as info;
 pub use keygen::run as keygen;
+pub use ping::run as ping;
 pub use project::run as project;
 pub use rekey::run as rekey;
 pub use serve::run as serve;
@@ -37,6 +39,7 @@ pub fn usage() {
   zamsync sync    <data-dir> <peer-addr> <peer-id> [--tls] [--schema ..] [--metrics <addr>]
   zamsync serve   <data-dir> <bind-addr> [--tls] [--schema ..] [--policy all|own] [--metrics <addr>] [--http <addr>]
   zamsync daemon  <data-dir> <peer-addr> <peer-id> [--tls] [--schema ..] [--interval <secs>] [--metrics <addr>]
+  zamsync ping    <data-dir> <peer-addr> [--tls] [--count N] [--timeout MS]
   zamsync compact <data-dir>
   zamsync keygen  <data-dir>
   zamsync sign    <clinic-dir> --ca <hub-dir>
