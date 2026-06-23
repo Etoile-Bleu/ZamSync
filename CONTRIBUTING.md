@@ -65,6 +65,10 @@ macOS is not a supported target. It may work but is not tested in CI.
 
 Issues labelled [`good first issue`](https://github.com/Etoile-Bleu/ZamSync/labels/good%20first%20issue) are scoped, well-documented, and non-blocking. Each one includes the exact file to edit, acceptance criteria, and an effort estimate.
 
+## Troubleshooting
+
+Hit an error? See the [Troubleshooting page](docs/src/troubleshooting.md) for common symptoms (`INVALID_JSON`, `SCHEMA_VIOLATION`) and their fixes.
+
 ## License
 
 By contributing you agree your work is released under the [MIT License](LICENSE).
