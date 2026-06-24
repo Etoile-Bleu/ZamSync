@@ -1,13 +1,14 @@
 use crate::util::{data_dir, flag_value, format_date, load_encryption_key, node_id_from_dir};
+use std::collections::BTreeMap;
 use zamsync_core::{ports::StateStore, Event, SequenceNumber, ZamResult};
 use zamsync_storage::ZamEngine;
 
-// Collects count + oldest/newest HLC timestamps in a single WAL scan.
 #[derive(Default)]
 struct InfoState {
     count: usize,
     oldest_ms: Option<u64>,
     newest_ms: Option<u64>,
+    per_node: BTreeMap<u32, u64>,
 }
 
 impl StateStore for InfoState {
@@ -16,6 +17,7 @@ impl StateStore for InfoState {
         let phys = event.hlc.physical;
         self.oldest_ms = Some(self.oldest_ms.map_or(phys, |o| o.min(phys)));
         self.newest_ms = Some(self.newest_ms.map_or(phys, |n| n.max(phys)));
+        *self.per_node.entry(event.origin_node.0).or_insert(0) += 1;
         Ok(())
     }
     fn last_applied_seq(&self) -> Option<SequenceNumber> {
@@ -64,6 +66,26 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(retain) = flag_value(args, "--retain") {
         println!("retain   : {}", retain);
+    }
+
+    let mut peer_counts: BTreeMap<u32, u64> = BTreeMap::new();
+    for &node in vv.entries.keys() {
+        peer_counts.entry(node).or_insert(0);
+    }
+    for (&node, &count) in &engine.state().per_node {
+        *peer_counts.entry(node).or_insert(0) = count;
+    }
+    if peer_counts.is_empty() {
+        println!("peers    : (none)");
+    } else {
+        println!("peers:");
+        for (node, count) in &peer_counts {
+            if *count == 0 {
+                println!("  node {:<6}: 0 events  (in VV but no local events)", node);
+            } else {
+                println!("  node {:<6}: {} events", node, count);
+            }
+        }
     }
 
     Ok(())

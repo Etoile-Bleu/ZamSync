@@ -25,6 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("rekey") => cmd::rekey(&args),
         Some("bench") => cmd::bench(&args),
         Some("daemon") => cmd::daemon(&args),
+        Some("ping") => cmd::ping(&args),
         Some("audit") => cmd::audit(&args),
         Some("project") => cmd::project(&args),
         Some("expire") => cmd::expire(&args),

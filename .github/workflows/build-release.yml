@@ -57,7 +57,7 @@ jobs:
             binary: zamsync.exe
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.RELEASE_TAG }}
 
@@ -114,7 +114,7 @@ jobs:
       packages: write
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.RELEASE_TAG }}
 
@@ -168,6 +168,10 @@ jobs:
       contents: write
 
     steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v8
         with:
           path: dist/
@@ -183,50 +187,78 @@ jobs:
           sha256sum * > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
+      - name: Build release body
+        run: |
+          git fetch --tags
+
+          # Find the closest previous semver tag, excluding the current one.
+          # This is the fix for the "Full Changelog: v1.1.1...v1.3.1" bug where
+          # GitHub's auto-generator picks the wrong base because the tag is
+          # created from a side branch before the PR is merged.
+          PREV=$(git tag --sort=-version:refname \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | grep -v "^${{ env.RELEASE_TAG }}$" \
+            | head -1)
+          echo "Generating changelog from $PREV to ${{ env.RELEASE_TAG }}"
+
+          REPO="${{ github.repository }}"
+          TAG="${{ env.RELEASE_TAG }}"
+          REPO_LOWER=$(echo "$REPO" | tr '[:upper:]' '[:lower:]')
+
+          # Write static install block
+          cat > /tmp/release_body.md << EOF
+          Offline-first synchronization engine for intermittent-connectivity deployments.
+
+          ### Install
+
+          \`\`\`bash
+          # Linux x86_64
+          curl -fsSL -o zamsync https://github.com/${REPO}/releases/download/${TAG}/zamsync-linux-x86_64
+          chmod +x zamsync && sudo mv zamsync /usr/local/bin/
+
+          # Linux ARM64 (Raspberry Pi 4, AWS Graviton)
+          curl -fsSL -o zamsync https://github.com/${REPO}/releases/download/${TAG}/zamsync-linux-aarch64
+          chmod +x zamsync && sudo mv zamsync /usr/local/bin/
+
+          # Linux ARMv7 (Raspberry Pi 2 / 3)
+          curl -fsSL -o zamsync https://github.com/${REPO}/releases/download/${TAG}/zamsync-linux-armv7
+          chmod +x zamsync && sudo mv zamsync /usr/local/bin/
+
+          # Windows (PowerShell)
+          Invoke-WebRequest -Uri "https://github.com/${REPO}/releases/download/${TAG}/zamsync-windows-x86_64.exe" -OutFile zamsync.exe
+          \`\`\`
+
+          ### Docker
+
+          \`\`\`bash
+          docker pull ghcr.io/${REPO_LOWER}:${TAG}
+          # or latest
+          docker pull ghcr.io/${REPO_LOWER}:latest
+          \`\`\`
+
+          ### Verify checksums
+
+          \`\`\`bash
+          sha256sum -c SHA256SUMS.txt
+          \`\`\`
+
+          EOF
+
+          # Append delta changelog (only commits since $PREV, not the full history)
+          gh api repos/${REPO}/releases/generate-notes \
+            -f tag_name="${TAG}" \
+            -f previous_tag_name="${PREV}" \
+            --jq '.body' >> /tmp/release_body.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: "ZamSync ${{ env.RELEASE_TAG }}"
-          body: |
-            ## ZamSync ${{ env.RELEASE_TAG }}
-
-            Offline-first synchronization engine for intermittent-connectivity deployments.
-
-            ### Install
-
-            ```bash
-            # Linux x86_64
-            curl -fsSL -o zamsync https://github.com/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/zamsync-linux-x86_64
-            chmod +x zamsync && sudo mv zamsync /usr/local/bin/
-
-            # Linux ARM64 (Raspberry Pi 4, AWS Graviton)
-            curl -fsSL -o zamsync https://github.com/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/zamsync-linux-aarch64
-            chmod +x zamsync && sudo mv zamsync /usr/local/bin/
-
-            # Linux ARMv7 (Raspberry Pi 2 / 3)
-            curl -fsSL -o zamsync https://github.com/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/zamsync-linux-armv7
-            chmod +x zamsync && sudo mv zamsync /usr/local/bin/
-
-            # Windows (PowerShell)
-            Invoke-WebRequest -Uri "https://github.com/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/zamsync-windows-x86_64.exe" -OutFile zamsync.exe
-            ```
-
-            ### Docker
-
-            ```bash
-            docker pull ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]'):${{ env.RELEASE_TAG }}
-            # or latest
-            docker pull ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]'):latest
-            ```
-
-            ### Verify checksums
-
-            ```bash
-            sha256sum -c SHA256SUMS.txt
-            ```
+          body_path: /tmp/release_body.md
           files: |
             release/*
-          generate_release_notes: true
           fail_on_unmatched_files: true
 
   # ── Smoke tests -- verify the binary and Docker image actually work ───────────
