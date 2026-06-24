@@ -58,9 +58,9 @@ Description=ZamSync Hub Node
 After=network.target
 
 [Service]
-ExecStart=zamsync serve {} {}
+ExecStart=/usr/local/bin/zamsync serve {} {}
 Restart=always
-User=root
+User=zamsync
 
 [Install]
 WantedBy=multi-user.target
