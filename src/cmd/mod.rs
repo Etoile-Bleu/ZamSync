@@ -45,7 +45,7 @@ pub fn usage() {
   zamsync sign    <clinic-dir> --ca <hub-dir>
   zamsync rekey   <data-dir> --old-key <path> --new-key <path>
   zamsync bench    <data-dir> [--events N]
-  zamsync audit    <data-dir> [--format json|text] [--since <unix-ms>] [--node <id>] [--key-file <path>]
+  zamsync audit    <data-dir> [--format json|text|csv] [--since <unix-ms>] [--node <id>] [--key-file <path>]
   zamsync project  <data-dir> [--target sqlite://path | postgres://...] [--batch-size N] [--dry-run] [--key-file <path>]
   zamsync expire   <data-dir> --before YYYY-MM-DD [--dry-run] [--min-keep N] [--key-file <path>]
   zamsync snapshot <data-dir> --output <path>
@@ -65,6 +65,11 @@ Flags (all commands that open the WAL):
 PKI workflow:
   zamsync keygen <hub-dir>                     -- generate hub CA + hub node cert + WAL key
   zamsync sign   <clinic-dir> --ca <hub-dir>   -- sign a new clinic node cert with hub CA
-  zamsync rekey  <dir> --old-key <p> --new-key <p>  -- rotate WAL encryption key"
+  zamsync rekey  <dir> --old-key <p> --new-key <p>  -- rotate WAL encryption key
+
+Color output (all commands):
+  --no-color         Disable ANSI colors
+  NO_COLOR=1         Disable ANSI colors (env, see no-color.org)
+  TERM=dumb          Disable ANSI colors (env)"
     );
 }

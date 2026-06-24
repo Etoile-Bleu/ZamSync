@@ -1,3 +1,4 @@
+use crate::color;
 use crate::util::{data_dir, flag_value, load_encryption_key, node_id_from_dir, open_engine};
 use rusqlite::{params, Connection};
 use std::path::{Path, PathBuf};
@@ -19,7 +20,11 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         matches!(target, Some(u) if u.starts_with("postgres://") || u.starts_with("postgresql://"));
 
     if is_pg && dry_run {
-        eprintln!("[dry-run] would project to {}", target.unwrap());
+        eprintln!(
+            "{}  would project to {}",
+            color::dim("[dry-run]"),
+            target.unwrap()
+        );
     }
 
     let node_id = node_id_from_dir(&dir);
@@ -28,28 +33,35 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     if dry_run {
         if !is_pg {
             let db_path = resolve_db_path(args, &dir)?;
-            eprintln!("[dry-run] would project to {}", db_path.display());
+            eprintln!(
+                "{}  would project to {}",
+                color::dim("[dry-run]"),
+                db_path.display()
+            );
         }
         let mut projected = 0usize;
         for result in engine.sorted_scan()? {
             let event = result?;
             println!(
-                "node={} seq={} type={} size={}B hlc={}",
-                event.origin_node.0,
-                event.seq.0,
+                "{}  {}  type={}  {}",
+                color::dim(&format!("node={}", event.origin_node.0)),
+                color::dim(&format!("seq={}", event.seq.0)),
                 event.event_type,
-                event.payload.len(),
-                event.hlc.physical,
+                color::dim(&format!("size={}B", event.payload.len())),
             );
             projected += 1;
         }
-        println!("{projected} events would be projected");
+        println!(
+            "{}  {} events would be projected",
+            color::dim("[dry-run]"),
+            color::yellow(&projected.to_string()),
+        );
         return Ok(());
     }
 
     if is_pg {
         let url = target.unwrap();
-        println!("projecting to {url}");
+        println!("{}  {}", color::dim("projecting to"), url);
         let scan = engine.sorted_scan()?;
         let iter = scan
             .into_iter()
@@ -58,7 +70,7 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let db_path = resolve_db_path(args, &dir)?;
-    println!("projecting to {}", db_path.display());
+    println!("{}  {}", color::dim("projecting to"), db_path.display());
 
     let mut conn = Connection::open(&db_path)?;
     init_schema(&conn)?;
@@ -83,7 +95,12 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         projected += p;
         skipped += s;
     }
-    println!("{projected} projected, {skipped} already present");
+    println!(
+        "{}  {} projected, {} already present",
+        color::dim("project  :"),
+        color::green(&projected.to_string()),
+        color::dim(&skipped.to_string()),
+    );
 
     Ok(())
 }

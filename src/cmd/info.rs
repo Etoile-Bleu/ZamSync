@@ -1,3 +1,4 @@
+use crate::color;
 use crate::util::{data_dir, flag_value, format_date, load_encryption_key, node_id_from_dir};
 use std::collections::BTreeMap;
 use zamsync_core::{ports::StateStore, Event, SequenceNumber, ZamResult};
@@ -25,6 +26,13 @@ impl StateStore for InfoState {
     }
 }
 
+/// Print a labeled field: dim label, normal value.
+macro_rules! field {
+    ($label:expr, $value:expr) => {
+        println!("{}  {}", color::dim($label), $value)
+    };
+}
+
 pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let dir = data_dir(args, 2)?;
     let node_id = node_id_from_dir(&dir);
@@ -35,37 +43,44 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         None => ZamEngine::open_wal(&dir, node_id, InfoState::default())?,
     };
 
-    println!("node_id  : {}", node_id.0);
-    println!("data_dir : {}", dir.display());
-    println!("events   : {}", engine.state().count);
+    field!("node_id  :", &color::bold(&node_id.0.to_string()));
+    field!("data_dir :", &dir.display().to_string());
+
+    let count = engine.state().count;
+    let count_str = if count > 0 {
+        color::bold(&count.to_string())
+    } else {
+        color::dim("0")
+    };
+    field!("events   :", &count_str);
 
     let vv = &engine.replication_state().local_vv;
     if vv.entries.is_empty() {
-        println!("vv       : (empty)");
+        field!("vv       :", &color::dim("(empty)"));
     } else {
         for (node, seq) in &vv.entries {
-            println!("vv       : node {} @ seq {}", node, seq.0);
+            field!("vv       :", &format!("node {} @ seq {}", node, seq.0));
         }
     }
 
     let wal_kb = std::fs::metadata(dir.join("events.wal"))
         .map(|m| m.len() / 1024)
         .unwrap_or(0);
-    println!("wal size : {} KB", wal_kb);
+    field!("wal size :", &format!("{wal_kb} KB"));
 
     match (engine.state().oldest_ms, engine.state().newest_ms) {
         (Some(o), Some(n)) => {
-            println!("oldest   : {}", format_date(o));
-            println!("newest   : {}", format_date(n));
+            field!("oldest   :", &format_date(o));
+            field!("newest   :", &format_date(n));
         }
         _ => {
-            println!("oldest   : --");
-            println!("newest   : --");
+            field!("oldest   :", &color::dim("--"));
+            field!("newest   :", &color::dim("--"));
         }
     }
 
     if let Some(retain) = flag_value(args, "--retain") {
-        println!("retain   : {}", retain);
+        field!("retain   :", retain);
     }
 
     let mut peer_counts: BTreeMap<u32, u64> = BTreeMap::new();
@@ -75,15 +90,24 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     for (&node, &count) in &engine.state().per_node {
         *peer_counts.entry(node).or_insert(0) = count;
     }
+
     if peer_counts.is_empty() {
-        println!("peers    : (none)");
+        field!("peers    :", &color::dim("(none)"));
     } else {
-        println!("peers:");
+        println!("{}  peers:", color::dim("         "));
         for (node, count) in &peer_counts {
             if *count == 0 {
-                println!("  node {:<6}: 0 events  (in VV but no local events)", node);
+                println!(
+                    "    node {:<6}  {}",
+                    node,
+                    color::dim("0 events  (in VV but no local events)"),
+                );
             } else {
-                println!("  node {:<6}: {} events", node, count);
+                println!(
+                    "    node {:<6}  {} events",
+                    node,
+                    color::bold(&count.to_string())
+                );
             }
         }
     }
