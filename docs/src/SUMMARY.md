@@ -10,6 +10,12 @@
 
 ---
 
+# Guide
+
+- [Getting Started](getting-started.md)
+
+---
+
 # Reference
 
 - [REST API](rest-api.md)
