@@ -4,6 +4,12 @@
 
 ---
 
+# Integration
+
+- [Integration Guide](integration.md)
+
+---
+
 # Reference
 
 - [REST API](rest-api.md)
