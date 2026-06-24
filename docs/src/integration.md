@@ -147,14 +147,14 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-zamsync-core    = "1.3"
-zamsync-storage = "1.3"
+zamsync-core    = { git = "https://github.com/Etoile-Bleu/ZamSync" }
+zamsync-storage = { git = "https://github.com/Etoile-Bleu/ZamSync" }
 ```
 
 To run sync sessions over the network, also add:
 
 ```toml
-zamsync-network = "1.3"
+zamsync-network = { git = "https://github.com/Etoile-Bleu/ZamSync" }
 ```
 
 ### Core types
@@ -293,13 +293,28 @@ use zamsync_network::TcpTransport;
 use zamsync_storage::SyncSession;
 use zamsync_core::NodeId;
 
+let peer_id = NodeId(2);
 let peer_addr = "192.168.1.10:9000";
-let mut transport = TcpTransport::connect(peer_addr)?;
-let peer_id = NodeId(2); // known peer ID
 
-let stats = SyncSession::new(&mut engine, &mut transport).sync_with(peer_id)?;
-println!("sent={} received={}", stats.events_sent, stats.events_received);
-engine.sync()?;
+// Bind to an ephemeral local port, then connect outbound to the hub.
+let mut transport = TcpTransport::bind("0.0.0.0:0")?;
+transport.connect(peer_id, peer_addr)?;
+
+let stats = SyncSession::new(&mut engine, &mut transport).sync(peer_id)?;
+// engine.sync() is called internally by SyncSession::sync() -- no need to call it again.
+println!("sent={} received={} bytes={}", stats.events_sent, stats.events_received, stats.bytes_sent);
+```
+
+To cap bandwidth (e.g. on a 2G link), use `with_max_bytes`:
+
+```rust
+let stats = SyncSession::new(&mut engine, &mut transport)
+    .with_max_bytes(512 * 1024) // 512 KB per session
+    .sync(peer_id)?;
+
+if stats.budget_exhausted {
+    // Session ended early; run again to transfer the remainder.
+}
 ```
 
 **Hub (server side)**
@@ -312,10 +327,10 @@ let mut listener = TcpTransport::bind("0.0.0.0:9000")?;
 loop {
     let mut peer = listener.accept_split()?;
     let peer_id = peer.peer_id();
-    // Each session gets its own engine instance; no shared mutable state.
+    // Each session opens its own engine instance -- no shared mutable state.
     let mut engine = ZamEngine::open_wal("./data", node_id, MyState::default())?;
-    let stats = SyncSession::new(&mut engine, &mut peer).serve_one(peer_id)?;
-    engine.sync()?;
+    SyncSession::new(&mut engine, &mut peer).serve_one(peer_id)?;
+    // engine.sync() is called internally by serve_one().
 }
 ```
 
