@@ -87,11 +87,7 @@ pub fn loss(failures: usize, total: usize) -> String {
 }
 
 pub(crate) fn loss_paint(failures: usize, total: usize, enabled: bool) -> String {
-    let pct = if total == 0 {
-        0
-    } else {
-        (failures * 100) / total
-    };
+    let pct = (failures * 100).checked_div(total).unwrap_or(0);
     let s = format!("loss={pct}%");
     let code = if pct == 0 {
         GREEN
