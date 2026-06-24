@@ -1,6 +1,6 @@
+use crate::cmd;
 use std::fs;
 use std::path::Path;
-use crate::cmd;
 
 pub fn setup(args: &[String]) -> Result<(), String> {
     // Validate arguments
@@ -33,8 +33,7 @@ pub fn setup(args: &[String]) -> Result<(), String> {
 
     // Create directory if it doesn't exist
     if !path.exists() {
-        fs::create_dir_all(path)
-            .map_err(|e| format!("Failed to create directory: {}", e))?;
+        fs::create_dir_all(path).map_err(|e| format!("Failed to create directory: {}", e))?;
     }
 
     println!("[ok] directory ready");
@@ -46,14 +45,9 @@ pub fn setup(args: &[String]) -> Result<(), String> {
     }
 
     // Call existing keygen logic
-    let keygen_args = vec![
-        args[0].clone(),
-        "keygen".to_string(),
-        data_dir.to_string(),
-    ];
+    let keygen_args = vec![args[0].clone(), "keygen".to_string(), data_dir.to_string()];
 
-    cmd::keygen(&keygen_args)
-        .map_err(|e| format!("Key generation failed: {}", e))?;
+    cmd::keygen(&keygen_args).map_err(|e| format!("Key generation failed: {}", e))?;
 
     println!("[ok] keys generated");
 
