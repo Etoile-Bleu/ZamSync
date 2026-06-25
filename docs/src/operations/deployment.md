@@ -38,7 +38,7 @@ sudo ./deploy/install.sh /path/to/zamsync
 ```
 
 It creates:
-- A `zamsync` system user (uid 1000, no shell, no home directory)
+- A `zamsync` system user (uid 1000, no shell, home dir `/var/lib/zamsync`)
 - `/var/lib/zamsync` owned by that user (mode 750)
 - `/etc/zamsync/zamsync.env` for site-specific configuration
 - The systemd unit at `/etc/systemd/system/zamsync.service`
