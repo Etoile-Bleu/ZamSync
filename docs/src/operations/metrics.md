@@ -94,11 +94,11 @@ Number of sync sessions terminated early because the `--max-bytes` budget was re
 
 | | |
 |-|-|
-| Type | Histogram |
-| Labels | `role` (`initiator` or `responder`) |
+| Type | Summary |
+| Labels | `role` (`initiator` or `responder`), `quantile` |
 | Source | `SyncSession::sync`, `SyncSession::serve_one` |
 
-Duration of each sync session from first byte sent to last byte written. Measured separately for initiator (the node that called `sync`) and responder (the node running `serve`). Use the `_bucket`, `_count`, and `_sum` suffixes to compute percentiles.
+Duration of each sync session from first byte sent to last byte written. Measured separately for initiator (the node that called `sync`) and responder (the node running `serve`). Exported as a Prometheus Summary: the base metric uses `quantile` labels (`"0"`, `"0.5"`, `"0.9"`, `"0.95"`, `"0.99"`, `"0.999"`, `"1"`), plus the standard `_count` (total sessions) and `_sum` (total seconds) suffixes.
 
 ---
 
@@ -194,10 +194,10 @@ rate(zamsync_sync_events_received_total[5m])
 rate(zamsync_bytes_sent_total[5m])
 ```
 
-**Sync session P99 latency:**
+**Sync session P99 latency (Summary, read quantile directly):**
 
 ```promql
-histogram_quantile(0.99, rate(zamsync_sync_duration_seconds_bucket[10m]))
+zamsync_sync_duration_seconds{role="initiator",quantile="0.99"}
 ```
 
 **WAL growth rate (bytes/hour):**
@@ -260,9 +260,7 @@ groups:
 
       - alert: ZamSyncSessionSlow
         expr: >
-          histogram_quantile(0.95,
-            rate(zamsync_sync_duration_seconds_bucket{role="initiator"}[10m])
-          ) > 30
+          zamsync_sync_duration_seconds{role="initiator",quantile="0.95"} > 30
         for: 5m
         labels:
           severity: warning
@@ -288,5 +286,5 @@ Panels included:
 | Wire bytes per peer | `rate(zamsync_bytes_sent_total[1m])` |
 | VV drift per peer | `zamsync_vv_drift_events` |
 | WAL size | `zamsync_wal_size_bytes` |
-| Sync duration P50/P95/P99 | `histogram_quantile(...)` |
+| Sync duration P50/P95/P99 | `zamsync_sync_duration_seconds{quantile="0.99"}` |
 | Budget exhaustion rate | `rate(zamsync_budget_exhausted_total[5m])` |
