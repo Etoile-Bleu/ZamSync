@@ -2,16 +2,16 @@ use crate::cmd;
 use std::fs;
 use std::path::Path;
 
-pub fn setup(args: &[String]) -> Result<(), String> {
+pub fn setup(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     // Validate arguments
     if args.len() < 4 {
-        return Err("Usage: zamsync setup --hub <data-dir> [--bind <addr>]".to_string());
+        return Err("Usage: zamsync setup --hub <data-dir> [--bind <addr>]".into());
     }
 
     // Ensure correct flag
     let flag = &args[2];
     if flag != "--hub" {
-        return Err("Only --hub mode is supported".to_string());
+        return Err("Only --hub mode is supported".into());
     }
 
     let data_dir = &args[3];
@@ -25,7 +25,7 @@ pub fn setup(args: &[String]) -> Result<(), String> {
         if let Some(val) = args.get(pos + 1) {
             bind_addr = val.clone();
         } else {
-            return Err("Missing value for --bind".to_string());
+            return Err("Missing value for --bind".into());
         }
     }
 
@@ -33,7 +33,7 @@ pub fn setup(args: &[String]) -> Result<(), String> {
 
     // Create directory if it doesn't exist
     if !path.exists() {
-        fs::create_dir_all(path).map_err(|e| format!("Failed to create directory: {}", e))?;
+        fs::create_dir_all(path)?;
     }
 
     println!("[ok] directory ready");
@@ -41,13 +41,13 @@ pub fn setup(args: &[String]) -> Result<(), String> {
     // Prevent overwrite
     let tls_dir = path.join("tls");
     if tls_dir.join("node.key").exists() {
-        return Err("Error: node.key already exists. Aborting.".to_string());
+        return Err("Error: node.key already exists. Aborting.".into());
     }
 
     // Call existing keygen logic
     let keygen_args = vec![args[0].clone(), "keygen".to_string(), data_dir.to_string()];
 
-    cmd::keygen(&keygen_args).map_err(|e| format!("Key generation failed: {}", e))?;
+    cmd::keygen(&keygen_args)?;
 
     println!("[ok] keys generated");
 
@@ -70,8 +70,7 @@ WantedBy=multi-user.target
 
     let service_path = path.join("zamsync-hub.service");
 
-    fs::write(&service_path, service_content)
-        .map_err(|e| format!("Failed to write service file: {}", e))?;
+    fs::write(&service_path, service_content)?;
 
     println!("[ok] systemd unit created -> {}", service_path.display());
 
