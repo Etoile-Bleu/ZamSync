@@ -60,15 +60,10 @@ zamsync sync   ./clinic 127.0.0.1:7000 $(cat ./hub/.node_id)
 ```
 
 ```text
-[clinic] connecting to 127.0.0.1:7000...
-[clinic] handshake ok  peer=hub
-[clinic] sent 1 event
-[clinic] received 0 events
-[clinic] sync complete in 8ms
+sync done: sent=1 received=0 bytes=156
 ```
 
 ## Next steps
 
 - [REST API](rest-api.md)
 - [Error Codes](error-codes.md)
-- [Deployment]()
