@@ -1,3 +1,4 @@
+use crate::color;
 use crate::util::{data_dir, flag_value};
 use zamsync_network::sign_node_cert;
 use zamsync_storage::EncryptionKey;
@@ -40,21 +41,43 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let enc_key = EncryptionKey::generate()?;
     enc_key.to_file(tls_dir.join("data.key"))?;
 
-    println!("Clinic credentials signed in {}/tls/", clinic_dir.display());
+    println!(
+        "{} {}/tls/",
+        color::green("clinic credentials signed in"),
+        clinic_dir.display()
+    );
     println!();
-    println!("  ca.crt   -- hub CA certificate (same as hub's ca.crt)");
-    println!("  node.crt -- clinic node certificate, signed by hub CA");
-    println!("  node.key -- clinic node private key (never share)");
-    println!("  data.key -- WAL encryption key for this clinic node");
+    println!(
+        "  {}  hub CA certificate (same as hub's ca.crt)",
+        color::dim("ca.crt  --")
+    );
+    println!(
+        "  {}  clinic node certificate, signed by hub CA",
+        color::dim("node.crt--")
+    );
+    println!(
+        "  {}  clinic node private key (never share)",
+        color::dim("node.key--")
+    );
+    println!(
+        "  {}  WAL encryption key for this clinic node",
+        color::dim("data.key--")
+    );
     println!();
     println!("Deploy to the clinic device and run:");
     println!(
-        "  zamsync serve {0} <bind-addr> --tls --key-file {0}/tls/data.key",
-        clinic_dir.display()
+        "  {}",
+        color::dim(&format!(
+            "zamsync serve {0} <bind-addr> --tls --key-file {0}/tls/data.key",
+            clinic_dir.display()
+        ))
     );
     println!(
-        "  zamsync sync  {0} <hub-addr>  <hub-id> --tls --key-file {0}/tls/data.key",
-        clinic_dir.display()
+        "  {}",
+        color::dim(&format!(
+            "zamsync sync  {0} <hub-addr>  <hub-id> --tls --key-file {0}/tls/data.key",
+            clinic_dir.display()
+        ))
     );
     Ok(())
 }

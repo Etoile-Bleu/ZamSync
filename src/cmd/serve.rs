@@ -1,4 +1,5 @@
 use crate::cmd::expire::parse_retain_ms;
+use crate::color;
 use crate::http::HttpConfig;
 use crate::metrics::start_metrics_server;
 use crate::util::{
@@ -99,9 +100,10 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                     Ok(mut eng) => match eng.expire_before(cutoff_ms, 0) {
                         Ok((dropped, freed)) if dropped > 0 => {
                             println!(
-                                "retain   : dropped {} events, freed {} KB",
-                                dropped,
-                                freed / 1024
+                                "{}  dropped {} events, freed {} KB",
+                                color::dim("retain   :"),
+                                color::yellow(&dropped.to_string()),
+                                freed / 1024,
                             );
                             let _ = eng.sync();
                         }
@@ -119,11 +121,11 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         let tls_config = load_tls_config(&dir)?;
         let mut transport = TlsTcpTransport::bind(bind_addr, &tls_config)?;
         println!(
-            "node {} TLS listening on {} [policy={:?}] [max-peers={}]",
-            node_id.0,
-            transport.local_addr()?,
-            policy,
-            max_peers,
+            "{} {} {} {}",
+            color::bold(&format!("node {} TLS", node_id.0)),
+            color::green(&format!("listening on {}", transport.local_addr()?)),
+            color::dim(&format!("[policy={policy:?}]")),
+            color::dim(&format!("[max-peers={max_peers}]")),
         );
         tls_loop(
             node_id,
@@ -137,11 +139,10 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     } else {
         let mut transport = TcpTransport::bind(bind_addr)?;
         println!(
-            "node {} listening on {} [policy={:?}] [max-peers={}]",
-            node_id.0,
-            transport.local_addr()?,
-            policy,
-            max_peers,
+            "{} {} {}",
+            color::bold(&format!("node {}", node_id.0)),
+            color::green(&format!("listening on {}", transport.local_addr()?)),
+            color::dim(&format!("[policy={policy:?}] [max-peers={max_peers}]")),
         );
         tcp_loop(
             node_id,
@@ -208,10 +209,16 @@ fn serve_peer_tcp(
     };
     match SyncSession::new(&mut engine, &mut pt).serve_one(peer_id) {
         Ok(stats) => println!(
-            "peer {} done: sent={} received={}",
-            peer_id.0, stats.events_sent, stats.events_received
+            "{} {} sent={} received={}",
+            color::bold(&format!("peer {}", peer_id.0)),
+            color::green("done:"),
+            stats.events_sent,
+            stats.events_received,
         ),
-        Err(e) => eprintln!("peer {} sync error: {e}", peer_id.0),
+        Err(e) => eprintln!(
+            "{} sync error: {e}",
+            color::red(&format!("peer {}", peer_id.0))
+        ),
     }
 }
 
@@ -275,10 +282,16 @@ fn serve_peer_tls(
     };
     match SyncSession::new(&mut engine, &mut pt).serve_one(peer_id) {
         Ok(stats) => println!(
-            "TLS peer {} done: sent={} received={}",
-            peer_id.0, stats.events_sent, stats.events_received
+            "{} {} sent={} received={}",
+            color::bold(&format!("TLS peer {}", peer_id.0)),
+            color::green("done:"),
+            stats.events_sent,
+            stats.events_received,
         ),
-        Err(e) => eprintln!("TLS peer {} sync error: {e}", peer_id.0),
+        Err(e) => eprintln!(
+            "{} sync error: {e}",
+            color::red(&format!("TLS peer {}", peer_id.0)),
+        ),
     }
 }
 

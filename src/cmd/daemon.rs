@@ -1,3 +1,4 @@
+use crate::color;
 use crate::metrics::start_metrics_server;
 use crate::util::{
     data_dir, flag_value, load_encryption_key, load_schema, load_tls_config, node_id_from_dir,
@@ -25,11 +26,15 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let node_id = node_id_from_dir(&dir);
     let peer = NodeId(peer_id);
     let interval = Duration::from_secs(interval_secs);
-
     let mode = if use_tls { "TLS" } else { "TCP" };
+
     println!(
-        "daemon: node {} syncing with peer {} ({}) every {}s",
-        node_id.0, peer_id, mode, interval_secs
+        "{} node {} -- peer {} ({}) -- interval {}s",
+        color::bold("daemon:"),
+        node_id.0,
+        peer_id,
+        mode,
+        interval_secs,
     );
 
     loop {
@@ -46,14 +51,22 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             Ok((sent, received)) => {
                 if sent > 0 || received > 0 {
                     println!(
-                        "[sync] peer={} sent={} received={}",
-                        peer_id, sent, received
+                        "{} peer={}  sent={}  received={}",
+                        color::green("[sync]"),
+                        peer_id,
+                        sent,
+                        received,
                     );
                 } else {
-                    println!("[sync] peer={} already in sync", peer_id);
+                    println!("{} peer={}  already in sync", color::dim("[sync]"), peer_id,);
                 }
             }
-            Err(e) => eprintln!("[sync] peer={} error: {}", peer_id, e),
+            Err(e) => eprintln!(
+                "{} peer={}  {}",
+                color::red("[sync]"),
+                peer_id,
+                color::red(&format!("error: {e}")),
+            ),
         }
 
         let elapsed = tick_start.elapsed();

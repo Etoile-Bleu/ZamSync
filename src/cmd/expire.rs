@@ -1,3 +1,4 @@
+use crate::color;
 use crate::util::{
     data_dir, flag_value, load_encryption_key, load_schema, node_id_from_dir, open_engine,
 };
@@ -28,12 +29,17 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 payload_bytes += event.payload.len() as u64;
             }
         }
-        println!("dry-run  : {} events would be expired", would_drop);
         println!(
-            "payload  : {} KB in expirable payloads",
-            payload_bytes / 1024
+            "{}  {} events would be expired",
+            color::dim("dry-run  :"),
+            color::yellow(&would_drop.to_string()),
         );
-        println!("wal size : {} KB", wal_size / 1024);
+        println!(
+            "{}  {} KB in expirable payloads",
+            color::dim("payload  :"),
+            payload_bytes / 1024,
+        );
+        println!("{}  {} KB", color::dim("wal size :"), wal_size / 1024);
         return Ok(());
     }
 
@@ -42,12 +48,17 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     engine.sync()?;
 
     if dropped == 0 {
-        println!("expire   : nothing to drop (all events newer than cutoff)");
+        println!(
+            "{}  {}",
+            color::dim("expire   :"),
+            color::green("nothing to drop (all events newer than cutoff)"),
+        );
     } else {
         println!(
-            "expire   : dropped {} events, freed {} KB",
-            dropped,
-            bytes_freed / 1024
+            "{}  dropped {} events, freed {} KB",
+            color::dim("expire   :"),
+            color::yellow(&dropped.to_string()),
+            bytes_freed / 1024,
         );
     }
     Ok(())

@@ -5,6 +5,7 @@ use zamsync_core::ports::Transport;
 use zamsync_core::{NodeId, SyncMessage, VersionVector};
 use zamsync_network::{TcpTransport, TlsTcpTransport};
 
+use crate::color;
 use crate::util::{data_dir, flag_value, load_tls_config, node_id_from_dir};
 
 const DEFAULT_COUNT: usize = 3;
@@ -30,8 +31,17 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let local_id = node_id_from_dir(&dir);
-    let tls_tag = if use_tls { "  [TLS]" } else { "" };
-    println!("PING {peer_addr}  local-node={}{tls_tag}", local_id.0);
+    let tls_tag = if use_tls {
+        format!("  {}", color::green("[TLS]"))
+    } else {
+        String::new()
+    };
+    println!(
+        "{}  local-node={}{}",
+        color::bold(&format!("PING {peer_addr}")),
+        local_id.0,
+        tls_tag,
+    );
 
     let mut rtt_samples: Vec<Duration> = Vec::with_capacity(count);
     let mut failures = 0usize;
@@ -39,31 +49,46 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     for seq in 1..=count {
         match probe(&dir, local_id, peer_addr, use_tls, timeout) {
             Ok((peer_id, rtt)) => {
-                let ok_tag = if use_tls { "  tls=ok" } else { "" };
+                let rtt_ms = rtt.as_millis();
+                let tls_ok = if use_tls {
+                    format!("  {}", color::green("tls=ok"))
+                } else {
+                    String::new()
+                };
                 println!(
-                    "  seq={seq}  peer={}  rtt={}ms{ok_tag}",
+                    "  {}  peer={}  rtt={}{}",
+                    color::dim(&format!("seq={seq}")),
                     peer_id.0,
-                    rtt.as_millis()
+                    color::rtt(rtt_ms),
+                    tls_ok,
                 );
                 rtt_samples.push(rtt);
             }
             Err(e) => {
-                println!("  seq={seq}  error: {e}");
+                println!(
+                    "  {}  {}",
+                    color::dim(&format!("seq={seq}")),
+                    color::red(&format!("error: {e}")),
+                );
                 failures += 1;
             }
         }
     }
 
-    println!("---");
+    println!("{}", color::dim("---"));
     let successes = count - failures;
-    let loss_pct = (failures * 100) / count;
-    println!("{successes}/{count}  loss={loss_pct}%");
+    println!("{successes}/{count}  {}", color::loss(failures, count));
     if !rtt_samples.is_empty() {
         let min = rtt_samples.iter().min().unwrap().as_millis();
         let max = rtt_samples.iter().max().unwrap().as_millis();
         let avg =
             rtt_samples.iter().map(|d| d.as_millis()).sum::<u128>() / rtt_samples.len() as u128;
-        println!("rtt  min={min}ms  avg={avg}ms  max={max}ms");
+        println!(
+            "rtt  min={}  avg={}  max={}",
+            color::rtt(min),
+            color::rtt(avg),
+            color::rtt(max),
+        );
     }
 
     if failures == count {
