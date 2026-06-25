@@ -49,6 +49,7 @@ pub fn usage() {
   zamsync project  <data-dir> [--target sqlite://path | postgres://...] [--batch-size N] [--dry-run] [--key-file <path>]
   zamsync expire   <data-dir> --before YYYY-MM-DD [--dry-run] [--min-keep N] [--key-file <path>]
   zamsync snapshot <data-dir> --output <path>
+  zamsync version
 
 Flags (serve / sync / daemon):
   --tls              Use mTLS with credentials in <data-dir>/tls/
