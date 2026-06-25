@@ -1,3 +1,4 @@
+use crate::color;
 use crate::util::{data_dir, flag_value, load_encryption_key, node_id_from_dir, open_engine};
 use sha2::{Digest, Sha256};
 use zamsync_storage::PayloadSchema;
@@ -14,10 +15,15 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 
     if format == "text" {
         println!(
-            "{:<27} {:>10} {:>10} {:>6} {:>8}  sha256",
-            "timestamp", "node", "seq", "type", "size"
+            "{}",
+            color::bold(&format!(
+                "{:<27} {:>10} {:>10} {:>6} {:>8}  sha256",
+                "timestamp", "node", "seq", "type", "size"
+            ))
         );
-        println!("{}", "-".repeat(90));
+        println!("{}", color::dim(&"-".repeat(90)));
+    } else if format == "csv" {
+        println!("timestamp,node,seq,type,size_bytes,sha256");
     }
 
     let mut total = 0usize;
@@ -48,22 +54,31 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 event.payload.len(),
                 event.hlc.logical,
             ),
-            _ => println!(
-                "{:<27} {:>10} {:>10} {:>6} {:>8}  {}",
+            "csv" => println!(
+                "{},{},{},{},{},{}",
                 ts,
                 event.origin_node.0,
                 event.seq.0,
                 event.event_type,
                 event.payload.len(),
-                &hash[..16],
+                hash,
+            ),
+            _ => println!(
+                "{}  {:>10}  {:>10}  {:>6}  {:>8}  {}",
+                color::dim(&ts),
+                event.origin_node.0,
+                event.seq.0,
+                event.event_type,
+                event.payload.len(),
+                color::dim(&hash[..16]),
             ),
         }
         total += 1;
     }
 
     if format == "text" {
-        println!("{}", "-".repeat(90));
-        println!("{total} event(s)");
+        println!("{}", color::dim(&"-".repeat(90)));
+        println!("{} event(s)", color::bold(&total.to_string()));
     }
 
     Ok(())

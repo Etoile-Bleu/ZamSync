@@ -1,4 +1,5 @@
 mod cmd;
+mod color;
 mod http;
 mod metrics;
 mod util;

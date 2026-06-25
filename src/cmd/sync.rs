@@ -1,3 +1,4 @@
+use crate::color;
 use crate::metrics::start_metrics_server;
 use crate::util::{
     data_dir, flag_value, is_transient, load_encryption_key, load_schema, load_tls_config,
@@ -50,11 +51,17 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         match sync_result {
             Ok(stats) => {
                 print!(
-                    "sync done: sent={} received={} bytes={}",
-                    stats.events_sent, stats.events_received, stats.bytes_sent
+                    "{}  sent={}  received={}  bytes={}",
+                    color::green("sync done:"),
+                    stats.events_sent,
+                    stats.events_received,
+                    stats.bytes_sent,
                 );
                 if stats.budget_exhausted {
-                    print!(" (budget exhausted -- resume with next sync)");
+                    print!(
+                        "  {}",
+                        color::yellow("budget exhausted -- resume with next sync")
+                    );
                 }
                 println!();
                 return Ok(());
@@ -62,8 +69,9 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             Err(ref e) if is_transient(e) && attempt < MAX_ATTEMPTS => {
                 let delay_ms = 100u64 * (1 << (attempt - 1));
                 eprintln!(
-                    "sync attempt {}/{MAX_ATTEMPTS} failed ({}), retrying in {delay_ms}ms",
-                    attempt, e
+                    "{}  attempt {}/{MAX_ATTEMPTS} failed ({e}), retrying in {delay_ms}ms",
+                    color::yellow("sync warn:"),
+                    attempt,
                 );
                 std::thread::sleep(std::time::Duration::from_millis(delay_ms));
             }

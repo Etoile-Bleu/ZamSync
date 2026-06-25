@@ -1,3 +1,4 @@
+use crate::color;
 use crate::util::{data_dir, load_encryption_key, load_schema, node_id_from_dir, open_engine};
 
 pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
@@ -9,6 +10,6 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let mut engine = open_engine(&dir, node_id, enc_key, schema)?;
     let seq = engine.submit(1, payload)?;
     engine.sync()?;
-    println!("submitted seq={}", seq.0);
+    println!("{} seq={}", color::green("submitted"), seq.0);
     Ok(())
 }
