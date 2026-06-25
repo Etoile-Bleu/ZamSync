@@ -10,6 +10,7 @@ mod project;
 mod project_pg;
 mod rekey;
 mod serve;
+mod setup;
 mod sign;
 mod snapshot;
 mod submit;
@@ -26,6 +27,7 @@ pub use ping::run as ping;
 pub use project::run as project;
 pub use rekey::run as rekey;
 pub use serve::run as serve;
+pub use setup::setup;
 pub use sign::run as sign;
 pub use snapshot::run as snapshot;
 pub use submit::run as submit;
@@ -42,6 +44,7 @@ pub fn usage() {
   zamsync ping    <data-dir> <peer-addr> [--tls] [--count N] [--timeout MS]
   zamsync compact <data-dir>
   zamsync keygen  <data-dir>
+  zamsync setup   --hub <data-dir>
   zamsync sign    <clinic-dir> --ca <hub-dir>
   zamsync rekey   <data-dir> --old-key <path> --new-key <path>
   zamsync bench    <data-dir> [--events N]
