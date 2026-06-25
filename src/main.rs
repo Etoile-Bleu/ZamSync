@@ -21,6 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("serve") => cmd::serve(&args),
         Some("compact") => cmd::compact(&args),
         Some("keygen") => cmd::keygen(&args),
+        Some("setup") => cmd::setup(&args),
         Some("sign") => cmd::sign(&args),
         Some("rekey") => cmd::rekey(&args),
         Some("bench") => cmd::bench(&args),
