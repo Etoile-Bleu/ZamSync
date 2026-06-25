@@ -56,24 +56,25 @@ Messages are serialized with rkyv and framed over TCP. TLS is a transparent laye
 
 A sync session has two roles: the **initiator** (the node that called `zamsync sync`) and the **responder** (the node running `zamsync serve`).
 
-```
-Initiator                                Responder
-─────────                                ─────────
-                                         (waiting for connections)
-connect TCP/TLS
-send Handshake{node_id, local_vv}  ──►
-                                   ◄──  Handshake{node_id, local_vv}
-                                   ◄──  EventBatch{...} × N
-                                   ◄──  SyncComplete
+```mermaid
+sequenceDiagram
+    participant I as Initiator
+    participant R as Responder
 
-apply incoming events
-compute gaps from peer_vv.find_gaps(our_vv)
-send EventBatch{...} × M           ──►
-send SyncComplete                  ──►
-                                         apply incoming events
-                                         mark peer's known_vv = local_vv
-wait for EOF
-disconnect
+    I->>R: connect TCP/TLS
+    I->>R: Handshake { node_id, local_vv }
+    R->>I: Handshake { node_id, local_vv }
+    R->>I: EventBatch × N  (events I is missing)
+    R->>I: SyncComplete
+
+    note over I: apply received events<br/>compute gaps from peer_vv
+
+    I->>R: EventBatch × M  (events R is missing)
+    I->>R: SyncComplete
+
+    note over R: apply received events<br/>mark peer known_vv = local_vv
+
+    I-->R: EOF / disconnect
 ```
 
 Both sides simultaneously stream events and apply what they receive. The responder sends first; the initiator applies the responder's events before pushing its own, which means the initiator's push fills only the gaps that remain after applying the responder's events.

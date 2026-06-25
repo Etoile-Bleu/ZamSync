@@ -25,33 +25,31 @@ This page explains how ZamSync's components fit together. The following pages go
 
 ## Component map
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│  zamsync (CLI binary)                                               │
-│                                                                     │
-│  ┌──────────────┐   ┌──────────────┐   ┌──────────────────────┐   │
-│  │ cmd/submit   │   │ cmd/sync     │   │ cmd/serve / daemon   │   │
-│  └──────┬───────┘   └──────┬───────┘   └──────────┬───────────┘   │
-│         │                  │                        │               │
-│         └──────────────────┴────────────────────────┘               │
-│                            │                                        │
-│                  ┌─────────▼──────────┐                            │
-│                  │   ZamEngine        │  (zamsync-storage)         │
-│                  │                    │                            │
-│                  │  HLC  VV  schema   │                            │
-│                  │  policy  state     │                            │
-│                  └──┬─────────────┬───┘                            │
-│                     │             │                                 │
-│           ┌─────────▼──┐   ┌──────▼───────┐                       │
-│           │ WalEventStore│   │ FilePeerStore│                       │
-│           │  events.wal │   │ peers.state  │                       │
-│           └─────────────┘   └──────────────┘                       │
-│                                                                     │
-│  ┌──────────────────────────────────────────────────────────────┐  │
-│  │  zamsync-network                                             │  │
-│  │  TcpTransport / TlsTcpTransport                             │  │
-│  └──────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    subgraph bin["zamsync (CLI binary)"]
+        submit["cmd/submit"]
+        sync["cmd/sync"]
+        serve["cmd/serve / daemon"]
+    end
+
+    subgraph storage["zamsync-storage"]
+        engine["ZamEngine\n(HLC · VV · schema · policy · state)"]
+        wal["WalEventStore\nevents.wal"]
+        peers["FilePeerStore\npeers.state"]
+    end
+
+    subgraph network["zamsync-network"]
+        transport["TcpTransport / TlsTcpTransport"]
+    end
+
+    submit --> engine
+    sync --> engine
+    serve --> engine
+    engine --> wal
+    engine --> peers
+    sync <--> transport
+    serve <--> transport
 ```
 
 ### Crates
@@ -67,54 +65,18 @@ This page explains how ZamSync's components fit together. The following pages go
 
 ## Data flow: submit to projection
 
-```
-Application
-    │
-    │  engine.submit(event_type, payload)
-    ▼
-ZamEngine
-    │  tick HLC
-    │  validate schema
-    │  assign local seq
-    ▼
-WalEventStore
-    │  serialize event (rkyv)
-    │  optionally encrypt (ChaCha20-Poly1305)
-    │  append to events.wal with CRC32 header
-    ▼
-Disk (events.wal)
-```
+```mermaid
+flowchart TD
+    A(["Application\nengine.submit(type, payload)"]) --> B
+    B["ZamEngine\ntick HLC · validate schema\nassign local seq"] --> C
+    C["WalEventStore\nserialize · encrypt · CRC32"] --> D[("events.wal")]
 
-Events never leave `events.wal` before being flushed. `engine.sync()` calls `fsync` to guarantee durability before returning to the caller.
+    E(["Network peer"]) --> F
+    F["SyncSession\nexchange Handshake · compute gaps\nstream EventBatch × N"] --> G
+    G["ZamEngine::apply_replicated\nidempotency check · sync HLC\nappend · update VV"] --> D
 
-```
-Network peer connects
-    │
-    ▼
-SyncSession::serve_one / sync
-    │  exchange Handshake messages (node_id + VV)
-    │  compute gaps using version vector diff
-    │  stream EventBatch frames (256 events/frame)
-    │  send/receive SyncComplete
-    ▼
-ZamEngine::apply_replicated (for each incoming event)
-    │  check idempotency (skip if seq already known)
-    │  sync HLC with event's HLC
-    │  append to local WAL
-    │  update local VV
-    ▼
-Disk (events.wal)
-```
-
-```
-Projection (audit, project, info)
-    │
-    ▼
-engine.sorted_scan()
-    │  reads all events from WAL
-    │  merge-sorts by (HLC, NodeId) across all origin nodes
-    ▼
-Deterministic global order
+    D --> H
+    H["engine.sorted_scan()\nmerge-sort by HLC, NodeId"] --> I(["Deterministic\nglobal order"])
 ```
 
 ---
@@ -123,20 +85,14 @@ Deterministic global order
 
 ZamSync does not enforce a fixed topology, but the typical deployment is hub-and-spoke:
 
-```
-        ┌──────────────────────────────────────────┐
-        │               Hub node                   │
-        │           events.wal (all events)         │
-        │         --policy all / own               │
-        └──────┬───────────────────────┬────────────┘
-               │ sync (opportunistic)  │ sync
-               ▼                       ▼
-    ┌──────────────────┐    ┌──────────────────┐
-    │  Clinic node 1   │    │  Clinic node 2   │
-    │  events.wal      │    │  events.wal      │
-    │  (own events     │    │  (own events     │
-    │   + hub copy)    │    │   + hub copy)    │
-    └──────────────────┘    └──────────────────┘
+```mermaid
+graph TD
+    hub["Hub node\nevents.wal (all events)\n--policy all / own"]
+    c1["Clinic node 1\nevents.wal\n(own events + hub copy)"]
+    c2["Clinic node 2\nevents.wal\n(own events + hub copy)"]
+
+    hub <-->|"sync (opportunistic)"| c1
+    hub <-->|"sync (opportunistic)"| c2
 ```
 
 With `--policy own`, the hub sends each clinic only the events that clinic originally submitted. With `--policy all` (the default), every node receives the full log.
