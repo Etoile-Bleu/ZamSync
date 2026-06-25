@@ -16,6 +16,13 @@
 
 ---
 
+# Operations
+
+- [Deployment](operations/deployment.md)
+- [Metrics](operations/metrics.md)
+
+---
+
 # Reference
 
 - [REST API](rest-api.md)
