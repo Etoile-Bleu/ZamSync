@@ -35,4 +35,4 @@
 
 # CLI Reference
 
-- [ping](cli-ping.md)
+- [CLI Reference](cli-reference.md)
