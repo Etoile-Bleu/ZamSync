@@ -64,10 +64,10 @@ Fix the request body. Ensure:
 
 The payload is valid JSON but fails the validation rule configured with `--schema` on the server.
 
-This error only occurs when the hub is started with `--schema json-required:<field1>,<field2>,...`. If no schema is configured, all payloads are accepted.
+This error only occurs when the hub is started with `--schema json+<field1>,<field2>,...`. If no schema is configured, all payloads are accepted.
 
 ```bash
-# Hub started with: --schema json-required:patient_id,type
+# Hub started with: --schema json+patient_id,type
 curl -X POST http://localhost:8080/submit \
   -H 'Content-Type: application/json' \
   -d '{"payload": {"name": "John"}}'

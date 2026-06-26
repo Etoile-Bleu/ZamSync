@@ -36,7 +36,7 @@ open http://localhost:8080/ui
 - [Integration Guide](integration.md) -- REST API, Rust crates, and DB projection walkthroughs
 - [REST API](rest-api.md) -- all endpoints with request/response examples
 - [Error Codes](error-codes.md) -- structured error reference for client developers
-- [ping](cli-ping.md) -- check hub reachability and RTT from the command line
+- [CLI Reference](cli-reference.md) -- all subcommands: submit, sync, serve, bench, audit, and more
 
 ## Source
 

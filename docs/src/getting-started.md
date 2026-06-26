@@ -39,13 +39,13 @@ zamsync info ./node
 ```
 
 ```text
-node_id  : 2748582051
-data_dir : ./node
-events   : 3
-vv       : node 2748582051 @ seq 3
-wal size : 1 KB
-oldest   : 2026-06-17
-newest   : 2026-06-17
+node_id  :  2748582051
+data_dir :  ./node
+events   :  3
+vv       :  node 2748582051 @ seq 2
+wal size :  1 KB
+oldest   :  2026-06-17
+newest   :  2026-06-17
 ```
 
 ## Two-node sync
@@ -60,7 +60,7 @@ zamsync sync   ./clinic 127.0.0.1:7000 $(cat ./hub/.node_id)
 ```
 
 ```text
-sync done: sent=1 received=0 bytes=156
+sync done:  sent=1  received=0  bytes=156
 ```
 
 ## Next steps

@@ -31,8 +31,8 @@ data_dir :  <path>
 events   :  <count>
 vv       :  node <id> @ seq <seq>
 wal size :  <N> KB
-oldest   :  <ISO timestamp>
-newest   :  <ISO timestamp>
+oldest   :  <YYYY-MM-DD>
+newest   :  <YYYY-MM-DD>
          :  peers:
     node <id>    <N> events
 ```
@@ -129,7 +129,11 @@ node <id> TLS listening on <addr> [policy=<policy>] [max-peers=<N>]
 
 ```
 peer <id> done: sent=<N> received=<N>
+TLS peer <id> done: sent=<N> received=<N>
 ```
+
+The `TLS ` prefix appears when the connection used mTLS (`--tls`).
+
 
 **Output -- retention on startup (when `--retain` drops events)**
 
@@ -399,7 +403,7 @@ zamsync bench <data-dir> [--events <N>]
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--events <N>` | `10000` | Number of events to write. Each event has a 64-byte payload. |
+| `--events <N>` | `10000` | Number of events to write. Each event has a 62-byte payload. |
 
 The benchmark measures:
 
@@ -412,7 +416,7 @@ The benchmark measures:
 **Output**
 
 ```
-bench: <N> events, payload 64 bytes
+bench: <N> events, payload 62 bytes
 data : <path>
 
 === submit ===

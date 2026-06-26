@@ -241,10 +241,11 @@ Use `scan_events` for simple sequential reads. Use `sorted_scan` when building a
 
 ### Encryption at rest
 
-Generate a key with the CLI:
+Generate credentials (TLS + WAL key) with the CLI:
 
 ```bash
-zamsync keygen > my.key
+zamsync keygen ./data
+# Key written to ./data/tls/data.key
 ```
 
 Load it in your application:
@@ -252,7 +253,7 @@ Load it in your application:
 ```rust
 use zamsync_storage::EncryptionKey;
 
-let raw: [u8; 32] = std::fs::read("my.key")?
+let raw: [u8; 32] = std::fs::read("./data/tls/data.key")?
     .try_into()
     .map_err(|_| "key must be exactly 32 bytes")?;
 

@@ -26,12 +26,13 @@ The VV only moves forward. `vv.update(node, seq)` sets the entry for `node` to `
 
 ```
 for each (node, remote_seq) in remote_vv:
-    local_seq = local_vv.get(node)          // 0 if absent
-    if remote_seq > local_seq:
-        gaps.push((node, local_seq + 1))    // first missing seq is local + 1
+    if node not in local_vv:
+        gaps.push((node, seq=0))            // never seen this node: start from 0
+    else if remote_seq > local_vv[node]:
+        gaps.push((node, local_vv[node] + 1))  // first missing seq
 ```
 
-If the local VV is ahead or equal for a given node, no gap is reported for that node. If the local VV does not know the node at all, the gap starts at sequence 0.
+If the local VV is ahead or equal for a given node, no gap is reported for that node. If the local VV does not know the node at all, the gap starts at sequence **0** (not 1 -- sequence numbers begin at zero).
 
 The result tells each node exactly which events to request, in the form of a starting sequence number per origin node.
 

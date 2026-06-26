@@ -26,13 +26,15 @@
 
 ---
 
-# Reference
+# Operations
 
-- [REST API](rest-api.md)
-- [Error Codes](error-codes.md)
+- [Deployment](operations/deployment.md)
+- [Metrics](operations/metrics.md)
 
 ---
 
-# CLI Reference
+# Reference
 
 - [CLI Reference](cli-reference.md)
+- [REST API](rest-api.md)
+- [Error Codes](error-codes.md)
