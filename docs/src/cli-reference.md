@@ -134,6 +134,7 @@ TLS peer <id> done: sent=<N> received=<N>
 
 The `TLS ` prefix appears when the connection used mTLS (`--tls`).
 
+
 **Output -- retention on startup (when `--retain` drops events)**
 
 ```
