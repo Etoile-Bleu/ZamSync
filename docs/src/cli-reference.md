@@ -31,8 +31,8 @@ data_dir :  <path>
 events   :  <count>
 vv       :  node <id> @ seq <seq>
 wal size :  <N> KB
-oldest   :  <ISO timestamp>
-newest   :  <ISO timestamp>
+oldest   :  <YYYY-MM-DD>
+newest   :  <YYYY-MM-DD>
          :  peers:
     node <id>    <N> events
 ```
@@ -415,7 +415,7 @@ The benchmark measures:
 **Output**
 
 ```
-bench: <N> events, payload 64 bytes
+bench: <N> events, payload 62 bytes
 data : <path>
 
 === submit ===
