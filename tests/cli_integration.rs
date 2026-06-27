@@ -367,6 +367,168 @@ fn test_project_pg_is_idempotent() {
     );
 }
 
+// ---- audit --head / --tail ---------------------------------------------------
+
+#[test]
+fn test_audit_head_limits_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = bin();
+    let dir_s = dir.path().to_str().unwrap();
+
+    for i in 0..5u32 {
+        Command::new(&bin)
+            .args(["submit", dir_s, &format!("event-{i}")])
+            .output()
+            .unwrap();
+    }
+
+    let out = Command::new(&bin)
+        .args(["audit", dir_s, "--format", "json", "--head", "3"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "audit --head failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(
+        lines.len(),
+        3,
+        "expected 3 JSON lines, got {}: {stdout}",
+        lines.len()
+    );
+
+    // First event must be seq=0 (earliest)
+    assert!(
+        lines[0].contains("\"seq\":0"),
+        "first line should be seq=0: {}",
+        lines[0]
+    );
+    assert!(
+        lines[2].contains("\"seq\":2"),
+        "third line should be seq=2: {}",
+        lines[2]
+    );
+}
+
+#[test]
+fn test_audit_tail_limits_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = bin();
+    let dir_s = dir.path().to_str().unwrap();
+
+    for i in 0..5u32 {
+        Command::new(&bin)
+            .args(["submit", dir_s, &format!("event-{i}")])
+            .output()
+            .unwrap();
+    }
+
+    let out = Command::new(&bin)
+        .args(["audit", dir_s, "--format", "json", "--tail", "2"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "audit --tail failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(
+        lines.len(),
+        2,
+        "expected 2 JSON lines, got {}: {stdout}",
+        lines.len()
+    );
+
+    // Last two events must be seq=3 and seq=4
+    assert!(
+        lines[0].contains("\"seq\":3"),
+        "first tail line should be seq=3: {}",
+        lines[0]
+    );
+    assert!(
+        lines[1].contains("\"seq\":4"),
+        "second tail line should be seq=4: {}",
+        lines[1]
+    );
+}
+
+#[test]
+fn test_audit_head_larger_than_total_returns_all() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = bin();
+    let dir_s = dir.path().to_str().unwrap();
+
+    for i in 0..3u32 {
+        Command::new(&bin)
+            .args(["submit", dir_s, &format!("event-{i}")])
+            .output()
+            .unwrap();
+    }
+
+    let out = Command::new(&bin)
+        .args(["audit", dir_s, "--format", "json", "--head", "100"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        stdout.lines().count(),
+        3,
+        "--head larger than total should return all events: {stdout}"
+    );
+}
+
+#[test]
+fn test_audit_tail_larger_than_total_returns_all() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = bin();
+    let dir_s = dir.path().to_str().unwrap();
+
+    for i in 0..3u32 {
+        Command::new(&bin)
+            .args(["submit", dir_s, &format!("event-{i}")])
+            .output()
+            .unwrap();
+    }
+
+    let out = Command::new(&bin)
+        .args(["audit", dir_s, "--format", "json", "--tail", "100"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        stdout.lines().count(),
+        3,
+        "--tail larger than total should return all events: {stdout}"
+    );
+}
+
+#[test]
+fn test_audit_head_and_tail_together_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = bin();
+    let dir_s = dir.path().to_str().unwrap();
+
+    let out = Command::new(&bin)
+        .args(["audit", dir_s, "--head", "3", "--tail", "3"])
+        .output()
+        .unwrap();
+    assert!(
+        !out.status.success(),
+        "combining --head and --tail should exit non-zero"
+    );
+}
+
 // ---- serve + sync ------------------------------------------------------------
 
 /// Start hub on port 0 (OS picks the port), parse the actual address from
