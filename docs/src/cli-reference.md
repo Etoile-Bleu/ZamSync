@@ -393,6 +393,45 @@ Creates `<clinic-dir>/tls/` and writes:
 
 ---
 
+## setup
+
+One-shot hub initialization: creates the data directory, generates TLS credentials and a WAL key, and writes a ready-to-install systemd unit file. It is a convenience wrapper around `keygen`.
+
+```
+zamsync setup --hub <data-dir> [--bind <addr>]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--hub <data-dir>` | required | Path to the hub data directory (created if absent). |
+| `--bind <addr>` | `0.0.0.0:5000` | Bind address written into the generated systemd unit. |
+
+`setup` will refuse to run if `<data-dir>/tls/node.key` already exists to prevent accidental overwrite of existing credentials.
+
+**Output**
+
+```
+Setting up hub in directory: /var/lib/hub
+[ok] directory ready
+[ok] keys generated
+[ok] systemd unit created -> /var/lib/hub/zamsync-hub.service
+
+Next steps:
+  1. Copy the unit:
+     sudo cp /var/lib/hub/zamsync-hub.service /etc/systemd/system/
+  2. Enable + start:
+     sudo systemctl enable --now zamsync-hub
+  3. For each clinic node:
+     copy /var/lib/hub/tls/ca.crt
+     zamsync keygen ./clinic-data
+     zamsync sign ./clinic_data --ca /var/lib/hub
+  Bind address: 0.0.0.0:5000
+```
+
+The generated unit file starts `zamsync serve <data-dir> <bind-addr>` without TLS or encryption flags. To add mTLS or WAL encryption, edit the unit's `ExecStart` to include `--tls` and `--key-file` after moving `data.key` to a secure path -- see [Deployment](operations/deployment.md).
+
+---
+
 ## bench
 
 Run a local write-throughput and sync-bandwidth benchmark.
