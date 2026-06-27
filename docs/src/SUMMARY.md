@@ -30,6 +30,8 @@
 
 - [Deployment](operations/deployment.md)
 - [Metrics](operations/metrics.md)
+- [Data Management](operations/data-management.md)
+- [Troubleshooting](operations/troubleshooting.md)
 
 ---
 
@@ -38,3 +40,9 @@
 - [CLI Reference](cli-reference.md)
 - [REST API](rest-api.md)
 - [Error Codes](error-codes.md)
+
+---
+
+# Contributing
+
+- [Contributing](contributing.md)
