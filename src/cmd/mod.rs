@@ -48,7 +48,7 @@ pub fn usage() {
   zamsync sign    <clinic-dir> --ca <hub-dir>
   zamsync rekey   <data-dir> --old-key <path> --new-key <path>
   zamsync bench    <data-dir> [--events N]
-  zamsync audit    <data-dir> [--format json|text|csv] [--since <unix-ms>] [--node <id>] [--key-file <path>]
+  zamsync audit    <data-dir> [--format json|text|csv] [--since <unix-ms>] [--node <id>] [--head N] [--tail N] [--key-file <path>]
   zamsync project  <data-dir> [--target sqlite://path | postgres://...] [--batch-size N] [--dry-run] [--key-file <path>]
   zamsync expire   <data-dir> --before YYYY-MM-DD [--dry-run] [--min-keep N] [--key-file <path>]
   zamsync snapshot <data-dir> --output <path>
