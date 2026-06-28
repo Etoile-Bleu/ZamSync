@@ -1,5 +1,7 @@
 # Summary
 
+- [Troubleshooting](./troubleshooting.md)
+
 [Introduction](introduction.md)
 
 ---
