@@ -1,6 +1,7 @@
 mod audit;
 mod bench;
 mod compact;
+mod conflicts;
 mod daemon;
 pub(crate) mod expire;
 mod info;
@@ -9,6 +10,7 @@ mod ping;
 mod project;
 mod project_pg;
 mod rekey;
+mod resolve;
 mod serve;
 mod setup;
 mod sign;
@@ -19,6 +21,7 @@ mod sync;
 pub use audit::run as audit;
 pub use bench::run as bench;
 pub use compact::run as compact;
+pub use conflicts::run as conflicts;
 pub use daemon::run as daemon;
 pub use expire::run as expire;
 pub use info::run as info;
@@ -26,6 +29,7 @@ pub use keygen::run as keygen;
 pub use ping::run as ping;
 pub use project::run as project;
 pub use rekey::run as rekey;
+pub use resolve::run as resolve;
 pub use serve::run as serve;
 pub use setup::setup;
 pub use sign::run as sign;
@@ -51,7 +55,9 @@ pub fn usage() {
   zamsync audit    <data-dir> [--format json|text|csv] [--since <unix-ms>] [--node <id>] [--head N] [--tail N] [--key-file <path>]
   zamsync project  <data-dir> [--target sqlite://path | postgres://...] [--batch-size N] [--dry-run] [--key-file <path>]
   zamsync expire   <data-dir> --before YYYY-MM-DD [--dry-run] [--min-keep N] [--key-file <path>]
-  zamsync snapshot <data-dir> --output <path>
+  zamsync snapshot  <data-dir> --output <path>
+  zamsync conflicts <data-dir> [--target <sqlite-path>] [--key <field>] [--format json|text]
+  zamsync resolve   <data-dir> --winner <seq>@<node> [--key-file <path>]
   zamsync version
 
 Flags (serve / sync / daemon):
