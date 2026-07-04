@@ -14,58 +14,66 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let batch_size: usize = flag_value(args, "--batch-size")
         .and_then(|v| v.parse().ok())
         .unwrap_or(100);
+    let only_node: Option<u32> = flag_value(args, "--node").and_then(|v| v.parse().ok());
+    let since_ms: Option<u64> = flag_value(args, "--since").and_then(|v| v.parse().ok());
+    let format = flag_value(args, "--format").unwrap_or("text");
 
     let target = flag_value(args, "--target");
     let is_pg =
         matches!(target, Some(u) if u.starts_with("postgres://") || u.starts_with("postgresql://"));
 
-    if is_pg && dry_run {
-        eprintln!(
-            "{}  would project to {}",
-            color::dim("[dry-run]"),
-            target.unwrap()
-        );
-    }
-
     let node_id = node_id_from_dir(&dir);
     let engine = open_engine(&dir, node_id, enc_key, PayloadSchema::None)?;
+    let events = collect_filtered(engine.sorted_scan()?, since_ms, only_node);
 
     if dry_run {
-        if !is_pg {
-            let db_path = resolve_db_path(args, &dir)?;
-            eprintln!(
-                "{}  would project to {}",
-                color::dim("[dry-run]"),
-                db_path.display()
-            );
+        let db_label: String = if is_pg {
+            target.unwrap().to_string()
+        } else {
+            resolve_db_path(args, &dir)?.display().to_string()
+        };
+        eprintln!("{}  would project to {}", color::dim("[dry-run]"), db_label,);
+
+        for event in &events {
+            if format == "json" {
+                println!(
+                    r#"{{"node":{},"seq":{},"hlc_ms":{},"type":{},"size":{}}}"#,
+                    event.origin_node.0,
+                    event.seq.0,
+                    event.hlc.physical,
+                    event.event_type,
+                    event.payload.len(),
+                );
+            } else {
+                println!(
+                    "{}  {}  type={}  {}",
+                    color::dim(&format!("node={}", event.origin_node.0)),
+                    color::dim(&format!("seq={}", event.seq.0)),
+                    event.event_type,
+                    color::dim(&format!("size={}B", event.payload.len())),
+                );
+            }
         }
-        let mut projected = 0usize;
-        for result in engine.sorted_scan()? {
-            let event = result?;
+
+        let summary = format!("{} events would be projected", events.len());
+        if format == "json" {
+            eprintln!("{}", color::dim(&format!("[dry-run]  {summary}")));
+        } else {
             println!(
-                "{}  {}  type={}  {}",
-                color::dim(&format!("node={}", event.origin_node.0)),
-                color::dim(&format!("seq={}", event.seq.0)),
-                event.event_type,
-                color::dim(&format!("size={}B", event.payload.len())),
+                "{}  {}",
+                color::dim("[dry-run]"),
+                color::yellow(&events.len().to_string()),
             );
-            projected += 1;
         }
-        println!(
-            "{}  {} events would be projected",
-            color::dim("[dry-run]"),
-            color::yellow(&projected.to_string()),
-        );
         return Ok(());
     }
 
     if is_pg {
         let url = target.unwrap();
         println!("{}  {}", color::dim("projecting to"), url);
-        let scan = engine.sorted_scan()?;
-        let iter = scan
+        let iter = events
             .into_iter()
-            .map(|r| r.map_err(|e| -> Box<dyn std::error::Error> { e.into() }));
+            .map(|e| -> Result<Event, Box<dyn std::error::Error>> { Ok(e) });
         return project_pg::run(url, iter, batch_size);
     }
 
@@ -79,8 +87,7 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let mut skipped = 0usize;
     let mut batch: Vec<Event> = Vec::with_capacity(batch_size);
 
-    for result in engine.sorted_scan()? {
-        let event = result?;
+    for event in events {
         batch.push(event);
         if batch.len() >= batch_size {
             let (p, s) = flush_batch(&mut conn, &batch)?;
@@ -103,6 +110,17 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     );
 
     Ok(())
+}
+
+fn collect_filtered(
+    scan: impl Iterator<Item = zamsync_core::ZamResult<Event>>,
+    since_ms: Option<u64>,
+    only_node: Option<u32>,
+) -> Vec<Event> {
+    scan.filter_map(|r| r.ok())
+        .filter(|e| since_ms.is_none_or(|ms| e.hlc.physical >= ms))
+        .filter(|e| only_node.is_none_or(|node| e.origin_node.0 == node))
+        .collect()
 }
 
 fn resolve_db_path(
@@ -194,6 +212,66 @@ fn flush_batch(
 mod tests {
     use super::*;
     use tempfile::tempdir;
+    use zamsync_core::{Hlc, NodeId, SequenceNumber};
+
+    fn make_event(node: u32, seq: u64, hlc_ms: u64, payload: &[u8]) -> Event {
+        Event {
+            origin_node: NodeId(node),
+            seq: SequenceNumber(seq),
+            hlc: Hlc::new(hlc_ms, 0),
+            event_type: 1,
+            payload: payload.to_vec(),
+        }
+    }
+
+    fn events_as_scan(events: Vec<Event>) -> impl Iterator<Item = zamsync_core::ZamResult<Event>> {
+        events.into_iter().map(Ok)
+    }
+
+    #[test]
+    fn test_filter_by_node() {
+        let evs = vec![
+            make_event(1, 0, 1000, b"a"),
+            make_event(2, 0, 1001, b"b"),
+            make_event(1, 1, 1002, b"c"),
+        ];
+        let result = collect_filtered(events_as_scan(evs), None, Some(1));
+        assert_eq!(result.len(), 2);
+        assert!(result.iter().all(|e| e.origin_node.0 == 1));
+    }
+
+    #[test]
+    fn test_filter_by_since() {
+        let evs = vec![
+            make_event(1, 0, 500, b"old"),
+            make_event(1, 1, 1000, b"exact"),
+            make_event(1, 2, 2000, b"new"),
+        ];
+        let result = collect_filtered(events_as_scan(evs), Some(1000), None);
+        assert_eq!(result.len(), 2);
+        assert!(result.iter().all(|e| e.hlc.physical >= 1000));
+    }
+
+    #[test]
+    fn test_filter_combined() {
+        let evs = vec![
+            make_event(1, 0, 500, b"old-n1"),
+            make_event(2, 0, 500, b"old-n2"),
+            make_event(1, 1, 2000, b"new-n1"),
+            make_event(2, 1, 2000, b"new-n2"),
+        ];
+        let result = collect_filtered(events_as_scan(evs), Some(1000), Some(1));
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].origin_node.0, 1);
+        assert_eq!(result[0].hlc.physical, 2000);
+    }
+
+    #[test]
+    fn test_filter_none_passes_all() {
+        let evs = vec![make_event(1, 0, 100, b"x"), make_event(2, 1, 200, b"y")];
+        let result = collect_filtered(events_as_scan(evs), None, None);
+        assert_eq!(result.len(), 2);
+    }
 
     #[test]
     fn test_init_schema_creates_table() {
@@ -214,38 +292,23 @@ mod tests {
     fn test_init_schema_idempotent() {
         let conn = Connection::open_in_memory().unwrap();
         init_schema(&conn).unwrap();
-        init_schema(&conn).unwrap(); // must not error
+        init_schema(&conn).unwrap();
     }
 
     #[test]
     fn test_flush_batch_inserts_and_skips() {
-        use zamsync_core::{Event, Hlc, NodeId, SequenceNumber};
-
         let mut conn = Connection::open_in_memory().unwrap();
         init_schema(&conn).unwrap();
 
         let events = vec![
-            Event {
-                origin_node: NodeId(1),
-                seq: SequenceNumber(0),
-                hlc: Hlc::new(1000, 0),
-                event_type: 1,
-                payload: b"hello".to_vec(),
-            },
-            Event {
-                origin_node: NodeId(1),
-                seq: SequenceNumber(1),
-                hlc: Hlc::new(1001, 0),
-                event_type: 1,
-                payload: b"world".to_vec(),
-            },
+            make_event(1, 0, 1000, b"hello"),
+            make_event(1, 1, 1001, b"world"),
         ];
 
         let (p, s) = flush_batch(&mut conn, &events).unwrap();
         assert_eq!(p, 2);
         assert_eq!(s, 0);
 
-        // Second flush -- both should be skipped (UNIQUE conflict)
         let (p2, s2) = flush_batch(&mut conn, &events).unwrap();
         assert_eq!(p2, 0);
         assert_eq!(s2, 2);
