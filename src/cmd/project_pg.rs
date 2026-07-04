@@ -1,3 +1,4 @@
+use crate::color;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use url::Url;
@@ -77,7 +78,12 @@ async fn run_async(
         skipped += s;
     }
 
-    println!("{projected} projected, {skipped} already present");
+    println!(
+        "{}  {} projected, {} already present",
+        color::dim("project  :"),
+        color::green(&projected.to_string()),
+        color::dim(&skipped.to_string()),
+    );
     Ok(())
 }
 
