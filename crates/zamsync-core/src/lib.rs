@@ -12,3 +12,7 @@ pub use event::{
 };
 pub use sync::{PeerSyncState, ReplicationState, SyncMessage, VersionVector};
 pub use validation::PayloadSchema;
+
+/// Reserved event_type for conflict-resolution records emitted by `zamsync resolve`.
+/// Application event types should avoid this value.
+pub const EVENT_TYPE_CONFLICT_RESOLUTION: u32 = 0xffff;

@@ -40,6 +40,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("project") => cmd::project(&args),
         Some("expire") => cmd::expire(&args),
         Some("snapshot") => cmd::snapshot(&args),
+        Some("conflicts") => cmd::conflicts(&args),
+        Some("resolve") => cmd::resolve(&args),
         Some("version") | Some("--version") | Some("-V") => {
             println!("{}", version_string());
             Ok(())
