@@ -18,6 +18,7 @@
 
 # Architecture
 
+- [Concepts](concepts.md)
 - [Overview](architecture/overview.md)
 - [Write-Ahead Log](architecture/wal.md)
 - [Hybrid Logical Clocks](architecture/hlc.md)
